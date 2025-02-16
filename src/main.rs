@@ -1,12 +1,17 @@
-use std::fs::File;
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    ops::Range,
+};
 
-use coitrees::{self as ct, GenericInterval};
+use coitrees::{self as ct, GenericInterval, Interval};
 use itertools::Itertools;
 use noodles::{
     bam::{self},
     core::{Position, Region},
     sam::alignment::record::cigar::op::Kind,
 };
+use peak::{merge_peaks, Peak, PeaksDetector, PeaksFilter};
 use plotters::prelude::*;
 
 // https://github.com/swizard0/smoothed_z_score/blob/master/src/lib.rs
@@ -72,7 +77,7 @@ fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, Kind
 
 pub fn pileup(
     bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
-    itv: ct::Interval<String>,
+    itv: &Interval<String>,
 ) -> eyre::Result<Vec<PileupInfo>> {
     let st: usize = itv.first.try_into()?;
     let end: usize = itv.last.try_into()?;
@@ -122,15 +127,90 @@ pub fn pileup(
     Ok(pileup_infos)
 }
 
+fn draw_nucfreq(
+    outfile: &str,
+    dim: (u32, u32),
+    interval: &Interval<String>,
+    first_data: Vec<u64>,
+    second_data: Vec<u64>,
+    first_peaks: Vec<Interval<Peak>>,
+    second_peaks: Vec<Interval<Peak>>,
+) -> eyre::Result<()> {
+    let root_area = BitMapBackend::new(outfile, dim).into_drawing_area();
+
+    root_area.fill(&WHITE)?;
+
+    let root_area = root_area.titled(&interval.metadata, ("sans-serif", 34))?;
+    let x_range: Range<u64> = interval.first.try_into()?..interval.last.try_into()?;
+    let y_range = 0u64..50u64;
+
+    let mut cc = ChartBuilder::on(&root_area)
+        .margin(5)
+        .x_label_area_size(50)
+        .y_label_area_size(50)
+        .build_cartesian_2d(x_range.clone(), y_range.clone())?;
+
+    cc.configure_mesh()
+        .x_desc("Position")
+        .y_desc("Coverage")
+        .draw()?;
+
+    cc.draw_series(LineSeries::new(
+        first_data
+            .iter()
+            .zip(x_range.clone().into_iter())
+            .map(|(y, x)| (x, *y)),
+        &BLACK,
+    ))?;
+    cc.draw_series(LineSeries::new(
+        second_data
+            .iter()
+            .zip(x_range.clone().into_iter())
+            .map(|(y, x)| (x, *y)),
+        &RED,
+    ))?;
+
+    cc.draw_series(first_peaks.iter().map(|pk| {
+        Rectangle::new(
+            [
+                (pk.first.try_into().unwrap(), y_range.end),
+                (pk.last.try_into().unwrap(), y_range.start),
+            ],
+            ShapeStyle {
+                color: BLACK.to_rgba().mix(0.5),
+                filled: true,
+                stroke_width: 1,
+            },
+        )
+    }))?;
+
+    cc.draw_series(second_peaks.iter().map(|pk| {
+        Rectangle::new(
+            [
+                (pk.first.try_into().unwrap(), y_range.end),
+                (pk.last.try_into().unwrap(), y_range.start),
+            ],
+            ShapeStyle {
+                color: RED.to_rgba().mix(0.5),
+                filled: true,
+                stroke_width: 1,
+            },
+        )
+    }))?;
+
+    root_area.present()?;
+    Ok(())
+}
+
 // https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
 fn main() -> eyre::Result<()> {
-    let file = "/project/logsdon_shared/projects/rs-nucflag/test/standard/aln.bam";
+    let file = "test/standard/aln.bam";
     let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(file)?;
 
     let (st, end) = (3021508u64, 8691473u64);
     let ctg = "haplotype2-0000133".to_owned();
     let itv = ct::Interval::new(st.try_into()?, end.try_into()?, ctg.to_owned());
-    let pileup = pileup(&mut bam, itv)?;
+    let pileup = pileup(&mut bam, &itv)?;
     let (mut first, mut second, mut mapq, mut sec, mut sup) = (
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
@@ -145,26 +225,61 @@ fn main() -> eyre::Result<()> {
         sec.push(p.n_sec);
         sup.push(p.n_sup);
     }
-    let root_area = BitMapBackend::new("test.png", (1024, 768)).into_drawing_area();
 
-    root_area.fill(&WHITE)?;
 
-    let root_area = root_area.titled("Image Title", ("sans-serif", 60))?;
+    // Peak calling too slow. Rewrite using polars lazy.
+    let pos: Range<usize> = st.try_into()?..end.try_into()?;
+    let first_peaks: Vec<Interval<Peak>> = merge_peaks(
+        first
+            .iter()
+            .zip(pos.clone())
+            .map(|pk| (pk.1, pk.0))
+            .peaks(PeaksDetector::new(1_000, 10.0, 0.0), |e| *e.1 as f64)
+            .map(|((i, _), p)| (i, p)),
+        Some(5000),
+        Some(100),
+    )?;
 
-    let mut cc = ChartBuilder::on(&root_area)
-        .margin(5)
-        .build_cartesian_2d(st..end, 0u64..100u64)?;
+    let second_peaks: Vec<Interval<Peak>> = merge_peaks(
+        second
+            .iter()
+            .zip(pos)
+            .filter_map(|(cov, pos)| (*cov < 2).then_some((pos, cov)))
+            .peaks(PeaksDetector::new(1_000, 10.0, 0.0), |e| *e.1 as f64)
+            .map(|((i, _), p)| (i, p)),
+        Some(5000),
+        Some(100),
+    )?;
 
-    cc.configure_mesh()
-        .disable_mesh()
-        .draw()?;
-    
-    let range = st..end;
-    cc.draw_series(LineSeries::new(
-        first.iter().zip(range.clone().into_iter()).map(|(y, x)| (x, *y)),
-        &BLACK,
-    ))?;
-    cc.draw_series(LineSeries::new(second.iter().zip(range.clone().into_iter()).map(|(y, x)| (x, *y)), &RED))?;
+    let bed_first = File::open("first.bed")?;
+    let mut bed_first_writer = BufWriter::new(bed_first);
+    for peak in first_peaks.iter() {
+        writeln!(
+            &mut bed_first_writer,
+            "{ctg}\t{}\t{}\t{:?}",
+            peak.first, peak.last, peak.metadata
+        )?;
+    }
+
+    let bed_second = File::open("second.bed")?;
+    let mut bed_second_writer = BufWriter::new(bed_second);
+    for peak in second_peaks.iter() {
+        writeln!(
+            &mut bed_second_writer,
+            "{ctg}\t{}\t{}\t{:?}",
+            peak.first, peak.last, peak.metadata
+        )?;
+    }
+
+    draw_nucfreq(
+        "out.png",
+        (2000, 350),
+        &itv,
+        first,
+        second,
+        first_peaks,
+        second_peaks,
+    )?;
 
     Ok(())
 }

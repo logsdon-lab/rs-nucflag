@@ -1,3 +1,5 @@
+use coitrees::{GenericInterval, Interval};
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Peak {
     Low,
@@ -103,4 +105,43 @@ where
         }
         None
     }
+}
+
+pub fn merge_peaks(
+    peaks: impl Iterator<Item = (usize, Peak)>,
+    bp_merge: Option<usize>,
+    thr_bp_peak: Option<usize>,
+) -> eyre::Result<Vec<Interval<Peak>>> {
+    let mut final_peaks: Vec<Interval<Peak>> = vec![];
+    let mut curr_peak: Vec<(usize, Peak)> = vec![];
+    let bp_merge = bp_merge.unwrap_or(5000);
+    let thr_bp_peak = thr_bp_peak.unwrap_or(1).try_into()?;
+
+    fn build_interval(curr_peak: &Vec<(usize, Peak)>) -> eyre::Result<Interval<Peak>> {
+        let (curr_peak_first, curr_peak_last) =
+            (curr_peak.first().unwrap(), curr_peak.last().unwrap());
+        Ok(Interval::new(
+            curr_peak_first.0.try_into()?,
+            curr_peak_last.0.try_into()?,
+            curr_peak_first.1,
+        ))
+    };
+
+    for pk in peaks {
+        if let Some(prev_pk) = curr_peak.last().filter(|prev_pk| prev_pk.1 == pk.1) {
+            let dst_diff = pk.0 - prev_pk.0;
+            // Greater than merge distance, add current peak elements. Then store new peak.
+            if dst_diff > bp_merge {
+                final_peaks.push(build_interval(&curr_peak)?);
+                curr_peak.clear();
+            }
+        }
+        curr_peak.push(pk);
+    }
+    if !curr_peak.is_empty() {
+        final_peaks.push(build_interval(&curr_peak)?);
+        curr_peak.clear();
+    }
+    final_peaks.retain(|pk| pk.len() > thr_bp_peak);
+    Ok(final_peaks)
 }
