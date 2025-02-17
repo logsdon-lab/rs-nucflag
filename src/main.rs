@@ -4,10 +4,10 @@ use std::{
     str::FromStr,
 };
 
-use coitrees::{self as ct, GenericInterval, Interval};
+use coitrees::{GenericInterval, Interval, IntervalTree};
 use draw::draw_nucfreq;
 use eyre::bail;
-use io::write_tsv;
+use io::{read_bed, write_tsv};
 use itertools::Itertools;
 use noodles::{
     bam::{self},
@@ -179,22 +179,30 @@ fn df_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result<Da
 // https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
 fn main() -> eyre::Result<()> {
     let window_size = 500_000;
-    let n_stdevs = 5;
+    // TODO: Split by peaks and valleys.
+    let n_stdevs = 4;
+
     let thr_second_perc = 0.25;
     let dim = (4000, 700);
     let output_png = "out.png";
+    let bedfile = "test/dupes/aln_3.bed";
+    let bamfile = "test/dupes/aln_3.bam";
 
-    let (st, end) = (3021508u64, 8691473u64);
-    let ctg = "haplotype2-0000133".to_owned();
+    let bed = read_bed(Some(bedfile), |name, st, end, _| {
+        Interval::new(st, end, name.to_owned())
+    })?
+    .unwrap();
+    let (ctg, itvs) = bed.iter().next().unwrap();
+    let itv = itvs
+        .iter()
+        .next()
+        .map(|i| Interval::new(i.first, i.last, i.metadata.to_owned()))
+        .unwrap();
 
-    let file = "test/standard/aln.bam";
-    let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(file)?;
-    let pileup = pileup(
-        &mut bam,
-        &ct::Interval::new(st.try_into()?, end.try_into()?, ctg.to_owned()),
-    )?;
+    let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(bamfile)?;
+    let pileup = pileup(&mut bam, &itv)?;
 
-    let df_pileup_info = df_pileup_info(pileup, st.try_into()?, end.try_into()?)?;
+    let df_pileup_info = df_pileup_info(pileup, itv.first.try_into()?, itv.last.try_into()?)?;
     let df_original_data = df_pileup_info.select(["first", "second", "mapq"])?;
     let [first, second, mapq] = df_original_data.get_columns() else {
         bail!("Invalid number of columns. Developer error.")
@@ -237,7 +245,7 @@ fn main() -> eyre::Result<()> {
     draw_nucfreq(
         output_png,
         dim,
-        &ctg,
+        ctg,
         pos,
         first,
         second,

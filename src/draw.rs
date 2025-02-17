@@ -1,6 +1,9 @@
 use coitrees::Interval;
 use eyre::bail;
-use plotters::{prelude::*, style::full_palette::{PURPLE, TEAL}};
+use plotters::{
+    prelude::*,
+    style::full_palette::{ORANGE, PURPLE, TEAL},
+};
 use polars::prelude::*;
 
 use crate::{misassembly::Misassembly, peak::Peak};
@@ -20,7 +23,7 @@ pub fn draw_nucfreq(
 
     root_area.fill(&WHITE)?;
 
-    let root_area = root_area.titled(&name, ("sans-serif", 34))?;
+    let root_area = root_area.titled(name, ("sans-serif", 34))?;
     // https://users.rust-lang.org/t/mini-rfc-min-max/19995/4
     let Some((min_pos, max_pos)) = positions
         .u64()?
@@ -33,8 +36,14 @@ pub fn draw_nucfreq(
         bail!("No min or max position.")
     };
 
+    // Find average in first_data.
+    // TODO: Make configurable.
+    let Some(mean_first_cov) = first_data.u64()?.max() else {
+        bail!("No data to calculate mean for {name}.")
+    };
+
     let x_range = min_pos..max_pos + 1;
-    let y_range = 0u64..50u64;
+    let y_range = 0u64..mean_first_cov as u64;
 
     let mut cc = ChartBuilder::on(&root_area)
         .margin(5)
@@ -53,7 +62,7 @@ pub fn draw_nucfreq(
             .u64()?
             .iter()
             .flatten()
-            .zip(x_range.clone().into_iter())
+            .zip(x_range.clone())
             .map(|(y, x)| (x, y)),
         &BLACK,
     ))?;
@@ -62,7 +71,7 @@ pub fn draw_nucfreq(
             .u64()?
             .iter()
             .flatten()
-            .zip(x_range.clone().into_iter())
+            .zip(x_range.clone())
             .map(|(y, x)| (x, y)),
         &RED,
     ))?;
@@ -72,7 +81,7 @@ pub fn draw_nucfreq(
             .u8()?
             .iter()
             .flatten()
-            .zip(x_range.clone().into_iter())
+            .zip(x_range.clone())
             .map(|(y, x)| (x, y as u64)),
         &PURPLE,
     ))?;
@@ -85,7 +94,7 @@ pub fn draw_nucfreq(
             ],
             ShapeStyle {
                 color: (if pk.metadata == Peak::Low {
-                    BLACK
+                    ORANGE
                 } else {
                     GREEN
                 })

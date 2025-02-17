@@ -27,11 +27,13 @@ impl FromStr for Peak {
 macro_rules! expr_peaks {
     ($colname:literal, $n_stdevs:expr) => {
         when(
+            // |x - median| > stdev * n_stdev
             (col($colname) - col(concat!($colname, "_median")))
                 .abs()
                 .gt(col(concat!($colname, "_stdev")) * lit($n_stdevs)),
         )
         .then(
+            // Then classify is peak or valley
             when(col($colname).gt(col(concat!($colname, "_median"))))
                 .then(lit("high"))
                 .otherwise(lit("low")),
@@ -88,6 +90,7 @@ pub fn find_peaks(
                 .alias("rank"),
         )
         // Filter positions under threshold percentile
+        // Removes noise and take only most prominent peaks.
         .filter((col("rank") / col("rank").max()).gt(lit(thr_second_perc)))
         .with_columns([
             col("second")
@@ -123,6 +126,9 @@ pub fn find_peaks(
             // col("sup"),
             col("first_peak"),
             col("second_peak"),
+        ])
+        .with_columns([
+            col("second_peak").fill_null(lit("none"))
         ]);
 
     Ok(lf_pileup.collect()?)
@@ -138,7 +144,7 @@ pub fn merge_peaks(
     let bp_merge = bp_merge.unwrap_or(5000);
     let thr_bp_peak = thr_bp_peak.unwrap_or(1).try_into()?;
 
-    fn build_interval(curr_peak: &Vec<(u64, Peak)>) -> eyre::Result<Interval<Peak>> {
+    fn build_interval(curr_peak: &[(u64, Peak)]) -> eyre::Result<Interval<Peak>> {
         let (curr_peak_first, curr_peak_last) =
             (curr_peak.first().unwrap(), curr_peak.last().unwrap());
         Ok(Interval::new(
