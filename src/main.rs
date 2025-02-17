@@ -1,20 +1,21 @@
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-    ops::Range,
-};
+use std::{fs::File, str::FromStr};
 
 use coitrees::{self as ct, GenericInterval, Interval};
+use draw::draw_nucfreq;
+use io::write_tsv;
 use itertools::Itertools;
 use noodles::{
     bam::{self},
     core::{Position, Region},
     sam::alignment::record::cigar::op::Kind,
 };
-use peak::{merge_peaks, Peak, PeaksDetector, PeaksFilter};
-use plotters::prelude::*;
+use peak::{find_peaks, merge_peaks, Peak};
+use polars::prelude::*;
 
 // https://github.com/swizard0/smoothed_z_score/blob/master/src/lib.rs
+mod draw;
+mod io;
+mod misassembly;
 mod peak;
 
 #[derive(Debug, Clone, Default)]
@@ -127,90 +128,24 @@ pub fn pileup(
     Ok(pileup_infos)
 }
 
-fn draw_nucfreq(
-    outfile: &str,
-    dim: (u32, u32),
-    interval: &Interval<String>,
-    first_data: Vec<u64>,
-    second_data: Vec<u64>,
-    first_peaks: Vec<Interval<Peak>>,
-    second_peaks: Vec<Interval<Peak>>,
-) -> eyre::Result<()> {
-    let root_area = BitMapBackend::new(outfile, dim).into_drawing_area();
-
-    root_area.fill(&WHITE)?;
-
-    let root_area = root_area.titled(&interval.metadata, ("sans-serif", 34))?;
-    let x_range: Range<u64> = interval.first.try_into()?..interval.last.try_into()?;
-    let y_range = 0u64..50u64;
-
-    let mut cc = ChartBuilder::on(&root_area)
-        .margin(5)
-        .x_label_area_size(50)
-        .y_label_area_size(50)
-        .build_cartesian_2d(x_range.clone(), y_range.clone())?;
-
-    cc.configure_mesh()
-        .x_desc("Position")
-        .y_desc("Coverage")
-        .draw()?;
-
-    cc.draw_series(LineSeries::new(
-        first_data
-            .iter()
-            .zip(x_range.clone().into_iter())
-            .map(|(y, x)| (x, *y)),
-        &BLACK,
-    ))?;
-    cc.draw_series(LineSeries::new(
-        second_data
-            .iter()
-            .zip(x_range.clone().into_iter())
-            .map(|(y, x)| (x, *y)),
-        &RED,
-    ))?;
-
-    cc.draw_series(first_peaks.iter().map(|pk| {
-        Rectangle::new(
-            [
-                (pk.first.try_into().unwrap(), y_range.end),
-                (pk.last.try_into().unwrap(), y_range.start),
-            ],
-            ShapeStyle {
-                color: BLACK.to_rgba().mix(0.5),
-                filled: true,
-                stroke_width: 1,
-            },
+fn peak_cols<'a>(
+    pos: &'a Column,
+    peak_col: &'a Column,
+) -> eyre::Result<impl Iterator<Item = (u64, Peak)> + use<'a>> {
+    Ok(pos
+        .u64()?
+        .iter()
+        .flatten()
+        .zip(
+            peak_col
+                .str()?
+                .iter()
+                .flat_map(|p| p.map(Peak::from_str).unwrap()),
         )
-    }))?;
-
-    cc.draw_series(second_peaks.iter().map(|pk| {
-        Rectangle::new(
-            [
-                (pk.first.try_into().unwrap(), y_range.end),
-                (pk.last.try_into().unwrap(), y_range.start),
-            ],
-            ShapeStyle {
-                color: RED.to_rgba().mix(0.5),
-                filled: true,
-                stroke_width: 1,
-            },
-        )
-    }))?;
-
-    root_area.present()?;
-    Ok(())
+        .flat_map(|(pos, peak)| (peak != Peak::Null).then_some((pos, peak))))
 }
 
-// https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
-fn main() -> eyre::Result<()> {
-    let file = "test/standard/aln.bam";
-    let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(file)?;
-
-    let (st, end) = (3021508u64, 8691473u64);
-    let ctg = "haplotype2-0000133".to_owned();
-    let itv = ct::Interval::new(st.try_into()?, end.try_into()?, ctg.to_owned());
-    let pileup = pileup(&mut bam, &itv)?;
+fn df_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result<DataFrame> {
     let (mut first, mut second, mut mapq, mut sec, mut sup) = (
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
@@ -221,64 +156,83 @@ fn main() -> eyre::Result<()> {
     for p in pileup.into_iter() {
         first.push(p.first());
         second.push(p.second());
-        mapq.push(p.median_mapq());
+        mapq.push(p.median_mapq().unwrap_or(0));
         sec.push(p.n_sec);
         sup.push(p.n_sup);
     }
+    DataFrame::new(vec![
+        Column::new("pos".into(), st..end + 1),
+        Column::new("first".into(), first),
+        Column::new("second".into(), second),
+        Column::new("mapq".into(), mapq),
+        Column::new("sec".into(), sec),
+        Column::new("sup".into(), sup),
+    ])
+    .map_err(Into::into)
+}
 
+// https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
+fn main() -> eyre::Result<()> {
+    let file = "test/standard/aln.bam";
+    let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(file)?;
 
-    // Peak calling too slow. Rewrite using polars lazy.
-    let pos: Range<usize> = st.try_into()?..end.try_into()?;
-    let first_peaks: Vec<Interval<Peak>> = merge_peaks(
-        first
-            .iter()
-            .zip(pos.clone())
-            .map(|pk| (pk.1, pk.0))
-            .peaks(PeaksDetector::new(1_000, 10.0, 0.0), |e| *e.1 as f64)
-            .map(|((i, _), p)| (i, p)),
-        Some(5000),
-        Some(100),
+    let (st, end) = (3021508u64, 8691473u64);
+    let ctg = "haplotype2-0000133".to_owned();
+    let pileup = pileup(
+        &mut bam,
+        &ct::Interval::new(st.try_into()?, end.try_into()?, ctg.to_owned()),
     )?;
 
-    let second_peaks: Vec<Interval<Peak>> = merge_peaks(
-        second
-            .iter()
-            .zip(pos)
-            .filter_map(|(cov, pos)| (*cov < 2).then_some((pos, cov)))
-            .peaks(PeaksDetector::new(1_000, 10.0, 0.0), |e| *e.1 as f64)
-            .map(|((i, _), p)| (i, p)),
-        Some(5000),
-        Some(100),
-    )?;
+    let df_pileup_info = df_pileup_info(pileup, st.try_into()?, end.try_into()?)?;
 
-    let bed_first = File::open("first.bed")?;
-    let mut bed_first_writer = BufWriter::new(bed_first);
-    for peak in first_peaks.iter() {
-        writeln!(
-            &mut bed_first_writer,
-            "{ctg}\t{}\t{}\t{:?}",
-            peak.first, peak.last, peak.metadata
-        )?;
-    }
+    let mut df = find_peaks(df_pileup_info, 5)?;
+    write_tsv(&mut df, "out.tsv")?;
 
-    let bed_second = File::open("second.bed")?;
-    let mut bed_second_writer = BufWriter::new(bed_second);
-    for peak in second_peaks.iter() {
-        writeln!(
-            &mut bed_second_writer,
-            "{ctg}\t{}\t{}\t{:?}",
-            peak.first, peak.last, peak.metadata
-        )?;
-    }
+    let [pos, first, second, mapq, sec, sup, first_peak, second_peak, mapq_peak] = df.get_columns()
+    else {
+        panic!()
+    };
+
+    let first_peaks: Vec<Interval<Peak>> =
+        merge_peaks(peak_cols(pos, first_peak)?, Some(5000), Some(100))?;
+
+    let second_peaks: Vec<Interval<Peak>> =
+        merge_peaks(peak_cols(pos, second_peak)?, Some(5000), Some(100))?;
+
+    let mapq_peaks: Vec<Interval<Peak>> =
+        merge_peaks(peak_cols(pos, mapq_peak)?, Some(5000), Some(100))?;
+
+    // let bed_first = File::open("first.bed")?;
+    // let mut bed_first_writer = BufWriter::new(bed_first);
+    // for peak in first_peaks.iter() {
+    //     writeln!(
+    //         &mut bed_first_writer,
+    //         "{ctg}\t{}\t{}\t{:?}",
+    //         peak.first, peak.last, peak.metadata
+    //     )?;
+    // }
+
+    // let bed_second = File::open("second.bed")?;
+    // let mut bed_second_writer = BufWriter::new(bed_second);
+    // for peak in second_peaks.iter() {
+    //     writeln!(
+    //         &mut bed_second_writer,
+    //         "{ctg}\t{}\t{}\t{:?}",
+    //         peak.first, peak.last, peak.metadata
+    //     )?;
+    // }
 
     draw_nucfreq(
         "out.png",
         (2000, 350),
-        &itv,
+        &ctg,
+        pos,
         first,
         second,
+        mapq,
         first_peaks,
         second_peaks,
+        mapq_peaks,
     )?;
 
     Ok(())

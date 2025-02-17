@@ -1,123 +1,117 @@
+use std::{convert::Infallible, str::FromStr};
+
 use coitrees::{GenericInterval, Interval};
+use polars::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Peak {
     Low,
     High,
+    Null,
 }
 
-pub struct PeaksDetector {
-    threshold: f64,
-    influence: f64,
-    window: Vec<f64>,
-}
+impl FromStr for Peak {
+    type Err = Infallible;
 
-impl PeaksDetector {
-    pub fn new(lag: usize, threshold: f64, influence: f64) -> PeaksDetector {
-        PeaksDetector {
-            threshold,
-            influence,
-            window: Vec::with_capacity(lag),
-        }
-    }
-
-    pub fn signal(&mut self, value: f64) -> Option<Peak> {
-        if self.window.len() < self.window.capacity() {
-            self.window.push(value);
-            None
-        } else if let (Some((mean, stddev)), Some(&window_last)) =
-            (self.stats(), self.window.last())
-        {
-            self.window.remove(0);
-            if (value - mean).abs() > (self.threshold * stddev) {
-                let next_value = (value * self.influence) + ((1. - self.influence) * window_last);
-                self.window.push(next_value);
-                Some(if value > mean { Peak::High } else { Peak::Low })
-            } else {
-                self.window.push(value);
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    pub fn stats(&self) -> Option<(f64, f64)> {
-        if self.window.is_empty() {
-            None
-        } else {
-            let window_len = self.window.len() as f64;
-            let mean = self.window.iter().fold(0., |a, v| a + v) / window_len;
-            let sq_sum = self
-                .window
-                .iter()
-                .fold(0., |a, v| a + ((v - mean) * (v - mean)));
-            let stddev = (sq_sum / window_len).sqrt();
-            Some((mean, stddev))
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "low" => Ok(Peak::Low),
+            "high" => Ok(Peak::High),
+            _ => Ok(Peak::Null),
         }
     }
 }
 
-pub struct PeaksIter<I, F> {
-    source: I,
-    signal: F,
-    detector: PeaksDetector,
+macro_rules! expr_peaks {
+    ($colname:literal, $n_stdevs:expr) => {
+        when(
+            (col($colname) - col(concat!($colname, "_median")))
+                .abs()
+                .gt(col(concat!($colname, "_stdev")) * lit($n_stdevs)),
+        )
+        .then(
+            when(col($colname).gt(col(concat!($colname, "_median"))))
+                .then(lit("high"))
+                .otherwise(lit("low")),
+        )
+        .otherwise(lit("none"))
+        .alias(concat!($colname, "_peak"))
+    };
 }
 
-pub trait PeaksFilter<I>
-where
-    I: Iterator,
-{
-    fn peaks<F>(self, detector: PeaksDetector, signal: F) -> PeaksIter<I, F>
-    where
-        F: FnMut(&I::Item) -> f64;
-}
+pub fn find_peaks(df_pileup: DataFrame, n_stdevs: i64) -> eyre::Result<DataFrame> {
+    let window_opts = RollingOptionsFixedWindow {
+        window_size: 5000,
+        ..Default::default()
+    };
+    let lf_pileup = df_pileup.lazy().cast(
+        PlHashMap::from_iter([
+            ("first", DataType::Int64),
+            ("second", DataType::Int64),
+            ("mapq", DataType::Int8),
+        ]),
+        true,
+    );
+    let lf_pileup = lf_pileup
+        .with_columns([
+            col("first")
+                .rolling_median(window_opts.clone())
+                .alias("first_median"),
+            col("second")
+                .rolling_median(window_opts.clone())
+                .alias("second_median"),
+            col("mapq")
+                .rolling_median(window_opts.clone())
+                .alias("mapq_median"),
+            col("first")
+                .rolling_std(window_opts.clone())
+                .alias("first_stdev"),
+            col("second")
+                .rolling_std(window_opts.clone())
+                .alias("second_stdev"),
+            col("mapq")
+                .rolling_std(window_opts.clone())
+                .alias("mapq_stdev"),
+        ])
+        .with_columns([
+            expr_peaks!("first", n_stdevs),
+            expr_peaks!("second", n_stdevs),
+            expr_peaks!("mapq", n_stdevs),
+        ])
+        .select([
+            col("pos"),
+            col("first"),
+            col("second"),
+            col("mapq"),
+            col("sec"),
+            col("sup"),
+            col("first_peak"),
+            col("second_peak"),
+            col("mapq_peak"),
+        ])
+        .cast(
+            PlHashMap::from_iter([
+                ("first", DataType::UInt64),
+                ("second", DataType::UInt64),
+                ("mapq", DataType::UInt8),
+            ]),
+            true,
+        );
 
-impl<I> PeaksFilter<I> for I
-where
-    I: Iterator,
-{
-    fn peaks<F>(self, detector: PeaksDetector, signal: F) -> PeaksIter<I, F>
-    where
-        F: FnMut(&I::Item) -> f64,
-    {
-        PeaksIter {
-            source: self,
-            signal,
-            detector,
-        }
-    }
-}
-
-impl<I, F> Iterator for PeaksIter<I, F>
-where
-    I: Iterator,
-    F: FnMut(&I::Item) -> f64,
-{
-    type Item = (I::Item, Peak);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(item) = self.source.next() {
-            let value = (self.signal)(&item);
-            if let Some(peak) = self.detector.signal(value) {
-                return Some((item, peak));
-            }
-        }
-        None
-    }
+    Ok(lf_pileup.collect()?)
 }
 
 pub fn merge_peaks(
-    peaks: impl Iterator<Item = (usize, Peak)>,
-    bp_merge: Option<usize>,
-    thr_bp_peak: Option<usize>,
+    peaks: impl Iterator<Item = (u64, Peak)>,
+    bp_merge: Option<u64>,
+    thr_bp_peak: Option<u64>,
 ) -> eyre::Result<Vec<Interval<Peak>>> {
     let mut final_peaks: Vec<Interval<Peak>> = vec![];
-    let mut curr_peak: Vec<(usize, Peak)> = vec![];
+    let mut curr_peak: Vec<(u64, Peak)> = vec![];
     let bp_merge = bp_merge.unwrap_or(5000);
     let thr_bp_peak = thr_bp_peak.unwrap_or(1).try_into()?;
 
-    fn build_interval(curr_peak: &Vec<(usize, Peak)>) -> eyre::Result<Interval<Peak>> {
+    fn build_interval(curr_peak: &Vec<(u64, Peak)>) -> eyre::Result<Interval<Peak>> {
         let (curr_peak_first, curr_peak_last) =
             (curr_peak.first().unwrap(), curr_peak.last().unwrap());
         Ok(Interval::new(
