@@ -1,7 +1,12 @@
-use std::{fs::File, str::FromStr};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    str::FromStr,
+};
 
 use coitrees::{self as ct, GenericInterval, Interval};
 use draw::draw_nucfreq;
+use eyre::bail;
 use io::write_tsv;
 use itertools::Itertools;
 use noodles::{
@@ -12,8 +17,8 @@ use noodles::{
 use peak::{find_peaks, merge_peaks, Peak};
 use polars::prelude::*;
 
-// https://github.com/swizard0/smoothed_z_score/blob/master/src/lib.rs
 mod draw;
+mod intervals;
 mod io;
 mod misassembly;
 mod peak;
@@ -140,7 +145,7 @@ fn peak_cols<'a>(
             peak_col
                 .str()?
                 .iter()
-                .flat_map(|p| p.map(Peak::from_str).unwrap()),
+                .flat_map(|p| Peak::from_str(p.unwrap_or_default())),
         )
         .flat_map(|(pos, peak)| (peak != Peak::Null).then_some((pos, peak))))
 }
@@ -173,24 +178,34 @@ fn df_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result<Da
 
 // https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
 fn main() -> eyre::Result<()> {
-    let file = "test/standard/aln.bam";
-    let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(file)?;
+    let window_size = 500_000;
+    let n_stdevs = 5;
+    let thr_second_perc = 0.25;
+    let dim = (4000, 700);
+    let output_png = "out.png";
 
     let (st, end) = (3021508u64, 8691473u64);
     let ctg = "haplotype2-0000133".to_owned();
+
+    let file = "test/standard/aln.bam";
+    let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(file)?;
     let pileup = pileup(
         &mut bam,
         &ct::Interval::new(st.try_into()?, end.try_into()?, ctg.to_owned()),
     )?;
 
     let df_pileup_info = df_pileup_info(pileup, st.try_into()?, end.try_into()?)?;
+    let df_original_data = df_pileup_info.select(["first", "second", "mapq"])?;
+    let [first, second, mapq] = df_original_data.get_columns() else {
+        bail!("Invalid number of columns. Developer error.")
+    };
 
-    let mut df = find_peaks(df_pileup_info, 5)?;
+    let mut df = find_peaks(df_pileup_info, window_size, n_stdevs, thr_second_perc)?;
+    // obed
     write_tsv(&mut df, "out.tsv")?;
 
-    let [pos, first, second, mapq, sec, sup, first_peak, second_peak, mapq_peak] = df.get_columns()
-    else {
-        panic!()
+    let [pos, first_peak, second_peak] = df.get_columns() else {
+        bail!("Invalid number of columns. Developer error.")
     };
 
     let first_peaks: Vec<Interval<Peak>> =
@@ -199,32 +214,29 @@ fn main() -> eyre::Result<()> {
     let second_peaks: Vec<Interval<Peak>> =
         merge_peaks(peak_cols(pos, second_peak)?, Some(5000), Some(100))?;
 
-    let mapq_peaks: Vec<Interval<Peak>> =
-        merge_peaks(peak_cols(pos, mapq_peak)?, Some(5000), Some(100))?;
+    let bed_first = File::create("first.bed")?;
+    let mut bed_first_writer = BufWriter::new(bed_first);
+    for peak in first_peaks.iter() {
+        writeln!(
+            &mut bed_first_writer,
+            "{ctg}\t{}\t{}\t{:?}",
+            peak.first, peak.last, peak.metadata
+        )?;
+    }
 
-    // let bed_first = File::open("first.bed")?;
-    // let mut bed_first_writer = BufWriter::new(bed_first);
-    // for peak in first_peaks.iter() {
-    //     writeln!(
-    //         &mut bed_first_writer,
-    //         "{ctg}\t{}\t{}\t{:?}",
-    //         peak.first, peak.last, peak.metadata
-    //     )?;
-    // }
-
-    // let bed_second = File::open("second.bed")?;
-    // let mut bed_second_writer = BufWriter::new(bed_second);
-    // for peak in second_peaks.iter() {
-    //     writeln!(
-    //         &mut bed_second_writer,
-    //         "{ctg}\t{}\t{}\t{:?}",
-    //         peak.first, peak.last, peak.metadata
-    //     )?;
-    // }
+    let bed_second = File::create("second.bed")?;
+    let mut bed_second_writer = BufWriter::new(bed_second);
+    for peak in second_peaks.iter() {
+        writeln!(
+            &mut bed_second_writer,
+            "{ctg}\t{}\t{}\t{:?}",
+            peak.first, peak.last, peak.metadata
+        )?;
+    }
 
     draw_nucfreq(
-        "out.png",
-        (2000, 350),
+        output_png,
+        dim,
         &ctg,
         pos,
         first,
@@ -232,7 +244,6 @@ fn main() -> eyre::Result<()> {
         mapq,
         first_peaks,
         second_peaks,
-        mapq_peaks,
     )?;
 
     Ok(())

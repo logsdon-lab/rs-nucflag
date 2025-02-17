@@ -1,8 +1,6 @@
-use std::ops::Range;
-
 use coitrees::Interval;
 use eyre::bail;
-use plotters::prelude::*;
+use plotters::{prelude::*, style::full_palette::{PURPLE, TEAL}};
 use polars::prelude::*;
 
 use crate::{misassembly::Misassembly, peak::Peak};
@@ -17,17 +15,21 @@ pub fn draw_nucfreq(
     mapq_data: &Column,
     first_peaks: Vec<Interval<Peak>>,
     second_peaks: Vec<Interval<Peak>>,
-    mapq_peaks: Vec<Interval<Peak>>,
 ) -> eyre::Result<()> {
     let root_area = BitMapBackend::new(outfile, dim).into_drawing_area();
 
     root_area.fill(&WHITE)?;
 
     let root_area = root_area.titled(&name, ("sans-serif", 34))?;
-    let (Some(min_pos), Some(max_pos)) = (
-        positions.u64()?.iter().flatten().min(),
-        positions.u64()?.iter().flatten().max(),
-    ) else {
+    // https://users.rust-lang.org/t/mini-rfc-min-max/19995/4
+    let Some((min_pos, max_pos)) = positions
+        .u64()?
+        .iter()
+        .flatten()
+        .fold(None, |m: Option<(u64, u64)>, x| {
+            m.map_or(Some((x, x)), |(m1, m2)| Some((m1.min(x), m2.max(x))))
+        })
+    else {
         bail!("No min or max position.")
     };
 
@@ -43,6 +45,7 @@ pub fn draw_nucfreq(
     cc.configure_mesh()
         .x_desc("Position")
         .y_desc("Coverage")
+        .disable_mesh()
         .draw()?;
 
     cc.draw_series(LineSeries::new(
@@ -64,6 +67,16 @@ pub fn draw_nucfreq(
         &RED,
     ))?;
 
+    cc.draw_series(LineSeries::new(
+        mapq_data
+            .u8()?
+            .iter()
+            .flatten()
+            .zip(x_range.clone().into_iter())
+            .map(|(y, x)| (x, y as u64)),
+        &PURPLE,
+    ))?;
+
     cc.draw_series(first_peaks.iter().map(|pk| {
         Rectangle::new(
             [
@@ -71,7 +84,13 @@ pub fn draw_nucfreq(
                 (pk.last.try_into().unwrap(), y_range.start),
             ],
             ShapeStyle {
-                color: BLACK.to_rgba().mix(0.5),
+                color: (if pk.metadata == Peak::Low {
+                    BLACK
+                } else {
+                    GREEN
+                })
+                .to_rgba()
+                .mix(0.5),
                 filled: true,
                 stroke_width: 1,
             },
@@ -85,7 +104,7 @@ pub fn draw_nucfreq(
                 (pk.last.try_into().unwrap(), y_range.start),
             ],
             ShapeStyle {
-                color: RED.to_rgba().mix(0.5),
+                color: TEAL.to_rgba().mix(0.5),
                 filled: true,
                 stroke_width: 1,
             },
