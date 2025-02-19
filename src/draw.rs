@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use coitrees::Interval;
 use eyre::bail;
 use plotters::{
@@ -9,21 +11,23 @@ use polars::prelude::*;
 use crate::{misassembly::Misassembly, peak::Peak};
 
 pub fn draw_nucfreq(
-    outfile: &str,
+    outfile: impl AsRef<Path>,
     dim: (u32, u32),
-    name: &str,
-    positions: &Column,
-    first_data: &Column,
-    second_data: &Column,
-    mapq_data: &Column,
+    title: &str,
+    df_cov: DataFrame,
+    // TODO: Replace with misassemblies hashmap
     first_peaks: Vec<Interval<Peak>>,
     second_peaks: Vec<Interval<Peak>>,
 ) -> eyre::Result<()> {
-    let root_area = BitMapBackend::new(outfile, dim).into_drawing_area();
+    let [positions, first, second, mapq] = df_cov.get_columns() else {
+        bail!("Invalid number of columns. Developer error.")
+    };
+
+    let root_area = BitMapBackend::new(&outfile, dim).into_drawing_area();
 
     root_area.fill(&WHITE)?;
 
-    let root_area = root_area.titled(name, ("sans-serif", 34))?;
+    let root_area = root_area.titled(title, ("sans-serif", 34))?;
     // https://users.rust-lang.org/t/mini-rfc-min-max/19995/4
     let Some((min_pos, max_pos)) = positions
         .u64()?
@@ -38,12 +42,12 @@ pub fn draw_nucfreq(
 
     // Find average in first_data.
     // TODO: Make configurable.
-    let Some(mean_first_cov) = first_data.u64()?.max() else {
-        bail!("No data to calculate mean for {name}.")
+    let Some(mean_first_cov) = first.u64()?.max() else {
+        bail!("No data to calculate mean for {title}.")
     };
 
     let x_range = min_pos..max_pos + 1;
-    let y_range = 0u64..mean_first_cov as u64;
+    let y_range = 0..mean_first_cov;
 
     let mut cc = ChartBuilder::on(&root_area)
         .margin(5)
@@ -58,7 +62,7 @@ pub fn draw_nucfreq(
         .draw()?;
 
     cc.draw_series(LineSeries::new(
-        first_data
+        first
             .u64()?
             .iter()
             .flatten()
@@ -67,7 +71,7 @@ pub fn draw_nucfreq(
         &BLACK,
     ))?;
     cc.draw_series(LineSeries::new(
-        second_data
+        second
             .u64()?
             .iter()
             .flatten()
@@ -77,8 +81,7 @@ pub fn draw_nucfreq(
     ))?;
 
     cc.draw_series(LineSeries::new(
-        mapq_data
-            .u8()?
+        mapq.u8()?
             .iter()
             .flatten()
             .zip(x_range.clone())

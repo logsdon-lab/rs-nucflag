@@ -1,19 +1,22 @@
 use std::{
-    collections::HashMap,
     fs::File,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     path::Path,
 };
 
-use coitrees::{COITree, Interval, IntervalTree};
+use coitrees::Interval;
 use itertools::Itertools;
 use polars::prelude::*;
 
-pub type RegionIntervals<T> = HashMap<String, Vec<Interval<T>>>;
-pub type RegionIntervalTrees<T> = HashMap<String, COITree<T, usize>>;
+use crate::config::Config;
 
-pub fn write_tsv(df: &mut DataFrame, path: impl AsRef<Path>) -> eyre::Result<()> {
-    let mut file = File::create(path)?;
+/// Write TSV file to file or stdout.
+pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Result<()> {
+    let mut file: Box<dyn Write> = if let Some(path) = path {
+        Box::new(File::create(path)?)
+    } else {
+        Box::new(std::io::stdout())
+    };
     CsvWriter::new(&mut file)
         .include_header(true)
         .with_separator(b'\t')
@@ -21,7 +24,7 @@ pub fn write_tsv(df: &mut DataFrame, path: impl AsRef<Path>) -> eyre::Result<()>
     Ok(())
 }
 
-/// Read an input bedfile and convert it to a [`COITree`].
+/// Read an BED file and return a list of [`Interval`]s.
 ///
 /// # Arguments
 /// * `bed`: Bedfile path.
@@ -45,12 +48,11 @@ pub fn write_tsv(df: &mut DataFrame, path: impl AsRef<Path>) -> eyre::Result<()>
 pub fn read_bed<T: Clone>(
     bed: Option<impl AsRef<Path>>,
     intervals_fn: impl Fn(&str, i32, i32, &str) -> Interval<T>,
-) -> eyre::Result<Option<RegionIntervalTrees<T>>> {
-    let mut intervals: RegionIntervals<T> = HashMap::new();
-    let mut trees: RegionIntervalTrees<T> = HashMap::new();
+) -> eyre::Result<Vec<Interval<T>>> {
+    let mut intervals = Vec::new();
 
     let Some(bed) = bed else {
-        return Ok(None);
+        return Ok(intervals);
     };
     let bed_fh = File::open(bed)?;
     let bed_reader = BufReader::new(bed_fh);
@@ -68,13 +70,16 @@ pub fn read_bed<T: Clone>(
             };
         let (first, last) = (start.parse::<i32>()?, stop.parse::<i32>()?);
 
-        intervals
-            .entry(name.to_owned())
-            .and_modify(|intervals| intervals.push(intervals_fn(name, first, last, other_cols)))
-            .or_insert_with(|| vec![intervals_fn(name, first, last, other_cols)]);
+        intervals.push(intervals_fn(name, first, last, other_cols))
     }
-    for (roi, intervals) in intervals.into_iter() {
-        trees.entry(roi).or_insert(COITree::new(&intervals));
+    Ok(intervals)
+}
+
+pub fn read_cfg(path: Option<impl AsRef<Path>>) -> eyre::Result<Config> {
+    if let Some(cfg_path) = path {
+        let cfg_str = std::fs::read_to_string(cfg_path)?;
+        toml::from_str(&cfg_str).map_err(Into::into)
+    } else {
+        Ok(Config::default())
     }
-    Ok(Some(trees))
 }

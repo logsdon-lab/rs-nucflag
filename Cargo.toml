@@ -1,5 +1,5 @@
 [package]
-name = "rs-nucflag"
+name = "nucflag"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,4 +12,7 @@ log = "0.4.25"
 noodles = { version = "0.91.0", features = ["bam", "bgzf", "core", "sam"] }
 plotters = "0.3.7"
 polars = { version = "0.46.0", features = ["abs", "dtype-u8", "lazy", "rank", "rolling_window", "round_series"] }
+rayon = "1.10.0"
+serde = "1.0.217"
 simple_logger = { version = "5.0.0", features = ["stderr"] }
+toml = "0.8.20"

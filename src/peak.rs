@@ -1,9 +1,8 @@
 use std::{convert::Infallible, str::FromStr};
 
 use coitrees::{GenericInterval, Interval};
+use eyre::bail;
 use polars::prelude::*;
-
-use crate::io::write_tsv;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Peak {
@@ -24,22 +23,22 @@ impl FromStr for Peak {
     }
 }
 
-macro_rules! expr_peaks {
-    ($colname:literal, $n_stdevs:expr) => {
+macro_rules! zscore_peak_call {
+    ($colname:ident, $colname_mean:ident, $colname_stdev:ident, $n_zscore:expr) => {
         when(
-            // |x - median| > stdev * n_stdev
-            (col($colname) - col(concat!($colname, "_median")))
+            // (|x - mean| / stdev) > stdev * n_stdev
+            ((col(&$colname) - col(&$colname_mean)) / col(&$colname_stdev))
                 .abs()
-                .gt(col(concat!($colname, "_stdev")) * lit($n_stdevs)),
+                .gt(lit($n_zscore)),
         )
         .then(
             // Then classify is peak or valley
-            when(col($colname).gt(col(concat!($colname, "_median"))))
+            when(col(&$colname).gt(col(&$colname_mean)))
                 .then(lit("high"))
                 .otherwise(lit("low")),
         )
         .otherwise(lit("none"))
-        .alias(concat!($colname, "_peak"))
+        .alias(format!("{}_peak", &$colname))
     };
 }
 
@@ -48,90 +47,73 @@ macro_rules! expr_peaks {
 pub fn find_peaks(
     df_pileup: DataFrame,
     window_size: usize,
-    n_stdevs: i64,
-    thr_second_perc: f32,
-) -> eyre::Result<DataFrame> {
+    n_zscore: f32,
+    min_perc: Option<f32>,
+) -> eyre::Result<LazyFrame> {
+    assert_eq!(
+        df_pileup.get_column_names().len(),
+        2,
+        "Only two columns expected (pos, data)."
+    );
+
     let window_opts = RollingOptionsFixedWindow {
         window_size,
+        center: true,
         ..Default::default()
+    };
+
+    let Some(colname) = df_pileup
+        .get_column_names_str()
+        .into_iter()
+        .find(|c| (*c).ne("pos"))
+        .map(|c| c.to_owned())
+    else {
+        bail!("No colname.")
     };
     let df_pileup = df_pileup
         .lazy()
         .cast(
-            PlHashMap::from_iter([("first", DataType::Int64), ("second", DataType::Int64)]),
+            PlHashMap::from_iter([(colname.as_str(), DataType::Int64)]),
             true,
         )
         .collect()?;
-    let lf_first = df_pileup.select(["pos", "first"])?.lazy();
-    let lf_second = df_pileup.select(["pos", "second"])?.lazy();
+    let lf_pileup = df_pileup.select(["pos", &colname])?.lazy();
+    // Filter by percentile if added.
+    let lf_pileup = if let Some(min_perc) = min_perc {
+        lf_pileup
+            .with_column(
+                col(&colname)
+                    .rank(RankOptions::default(), None)
+                    .cast(DataType::Float32)
+                    .alias("rank"),
+            )
+            // Filter positions under threshold percentile
+            // Removes noise and take only most prominent peaks.
+            .filter((col("rank") / col("rank").max()).gt(lit(min_perc)))
+    } else {
+        lf_pileup
+    };
+
     // // TODO: Might need to look at mapq for HSAT and false dupes.
+    let mean_col = format!("{}_mean", colname);
+    let stdev_col = format!("{}_stdev", colname);
 
-    // let lf_rest = df_pileup
-    //     .lazy()
-    //     .select([col("pos"), col("mapq"), col("sec"), col("sup")]);
-
-    let lf_first = lf_first
-        .with_columns([
-            col("first")
-                .rolling_median(window_opts.clone())
-                .alias("first_median"),
-            (col("first").rolling_sum(window_opts.clone()) / lit(window_size as u64))
-                .sqrt()
-                .alias("first_stdev"),
-        ])
-        .with_column(expr_peaks!("first", n_stdevs));
-
-    // Take only second cols that are >= 50th percentile.
-    let lf_second = lf_second
+    let lf_pileup = lf_pileup
         .with_column(
-            col("second")
-                .rank(RankOptions::default(), None)
-                .cast(DataType::Float32)
-                .alias("rank"),
+            col(&colname)
+                .rolling_mean(window_opts.clone())
+                .fill_null(col(&colname).mean())
+                .alias(&mean_col),
         )
-        // Filter positions under threshold percentile
-        // Removes noise and take only most prominent peaks.
-        .filter((col("rank") / col("rank").max()).gt(lit(thr_second_perc)))
-        .with_columns([
-            col("second")
-                .rolling_median(window_opts.clone())
-                .alias("second_median"),
-            (col("second")
-                .rolling_sum(window_opts.clone())
-                .floor_div(lit(window_size as u64)))
-            .sqrt()
-            .alias("second_stdev"),
-        ])
-        .with_column(expr_peaks!("second", n_stdevs));
-
-    let lf_pileup = lf_first
-        .join(
-            lf_second,
-            [col("pos")],
-            [col("pos")],
-            JoinArgs::new(JoinType::Left),
+        .with_column(
+            col(&colname)
+                .rolling_std(window_opts.clone())
+                .fill_null(col(&colname).std(1))
+                .alias(&stdev_col),
         )
-        // .join(
-        //     lf_rest,
-        //     [col("pos")],
-        //     [col("pos")],
-        //     JoinArgs::new(JoinType::Left),
-        // )
-        .select([
-            col("pos"),
-            // col("first"),
-            // col("second"),
-            // col("mapq"),
-            // col("sec"),
-            // col("sup"),
-            col("first_peak"),
-            col("second_peak"),
-        ])
-        .with_columns([
-            col("second_peak").fill_null(lit("none"))
-        ]);
+        .with_column(zscore_peak_call!(colname, mean_col, stdev_col, n_zscore));
 
-    Ok(lf_pileup.collect()?)
+    Ok(lf_pileup)
 }
 
 pub fn merge_peaks(
@@ -141,7 +123,7 @@ pub fn merge_peaks(
 ) -> eyre::Result<Vec<Interval<Peak>>> {
     let mut final_peaks: Vec<Interval<Peak>> = vec![];
     let mut curr_peak: Vec<(u64, Peak)> = vec![];
-    let bp_merge = bp_merge.unwrap_or(5000);
+    let bp_merge = bp_merge.unwrap_or(1);
     let thr_bp_peak = thr_bp_peak.unwrap_or(1).try_into()?;
 
     fn build_interval(curr_peak: &[(u64, Peak)]) -> eyre::Result<Interval<Peak>> {

@@ -1,258 +1,92 @@
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-    str::FromStr,
-};
-
-use coitrees::{GenericInterval, Interval, IntervalTree};
-use draw::draw_nucfreq;
-use eyre::bail;
-use io::{read_bed, write_tsv};
-use itertools::Itertools;
-use noodles::{
-    bam::{self},
-    core::{Position, Region},
-    sam::alignment::record::cigar::op::Kind,
-};
-use peak::{find_peaks, merge_peaks, Peak};
+use clap::Parser;
+use classify::classify_misassemblies;
+use cli::Cli;
+use coitrees::Interval;
+use io::{read_bed, read_cfg, write_tsv};
+use noodles::bam::{self};
 use polars::prelude::*;
+use rayon::{prelude::*, ThreadPoolBuilder};
 
+mod classify;
+mod cli;
+mod config;
 mod draw;
 mod intervals;
 mod io;
 mod misassembly;
 mod peak;
-
-#[derive(Debug, Clone, Default)]
-pub struct PileupInfo {
-    pub n_a: u64,
-    pub n_t: u64,
-    pub n_g: u64,
-    pub n_c: u64,
-    pub n_sec: u64,
-    pub n_sup: u64,
-    pub mapq: Vec<u8>,
-}
-
-impl PileupInfo {
-    fn median_mapq(&self) -> Option<u8> {
-        self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
-    }
-
-    fn first(&self) -> u64 {
-        std::cmp::max(
-            std::cmp::max(self.n_a, self.n_t),
-            std::cmp::max(self.n_g, self.n_c),
-        )
-    }
-
-    fn second(&self) -> u64 {
-        std::cmp::min(
-            std::cmp::max(self.n_a, self.n_t),
-            std::cmp::max(self.n_g, self.n_c),
-        )
-    }
-}
-
-// https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignedsegment.pyx#L2009
-fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, Kind)>> {
-    let cg = read.cigar();
-    let mut pos: usize = read.alignment_start().unwrap()?.get();
-    let mut qpos: usize = 0;
-    let mut pairs = vec![];
-    // Matches only
-    for (op, l) in cg.iter().flatten().map(|op| (op.kind(), op.len())) {
-        match op {
-            Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => {
-                for i in pos..(pos + l) {
-                    pairs.push((qpos, i, op));
-                    qpos += 1
-                }
-                pos += l
-            }
-            Kind::Insertion | Kind::SoftClip | Kind::Pad => qpos += l,
-            Kind::Deletion => pos += l,
-            Kind::HardClip => {
-                continue;
-            }
-            Kind::Skip => pos += l,
-        }
-    }
-    Ok(pairs)
-}
-
-pub fn pileup(
-    bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
-    itv: &Interval<String>,
-) -> eyre::Result<Vec<PileupInfo>> {
-    let st: usize = itv.first.try_into()?;
-    let end: usize = itv.last.try_into()?;
-    let length: usize = itv.len().try_into()?;
-
-    let header = bam.read_header()?;
-    let region = Region::new(
-        &*itv.metadata,
-        Position::try_from(st)?..=Position::try_from(end)?,
-    );
-
-    // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignmentfile.pyx#L1458
-    let query = bam.query(&header, &region)?;
-    let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length];
-
-    for read in query.into_iter().flatten() {
-        let seq = read.sequence();
-        let mapq = read.mapping_quality().unwrap().get();
-        let flags = read.flags();
-
-        for (qpos, refpos, _) in get_aligned_pairs(&read)?
-            .iter()
-            .filter(|(_, refpos, _)| *refpos >= st && *refpos <= end)
-        {
-            let pos = refpos - st;
-            let pileup_info = &mut pileup_infos[pos];
-            pileup_info.mapq.push(mapq);
-
-            if flags.is_supplementary() {
-                pileup_info.n_sup += 1
-            }
-            if flags.is_secondary() {
-                pileup_info.n_sec += 1
-            }
-            let bp = seq.get(*qpos).unwrap();
-            match bp {
-                b'A' => pileup_info.n_a += 1,
-                b'C' => pileup_info.n_c += 1,
-                b'G' => pileup_info.n_g += 1,
-                b'T' => pileup_info.n_t += 1,
-                b'N' => (),
-                _ => log::debug!("Character not recognized at pos {pos}: {bp:?}"),
-            }
-        }
-    }
-
-    Ok(pileup_infos)
-}
-
-fn peak_cols<'a>(
-    pos: &'a Column,
-    peak_col: &'a Column,
-) -> eyre::Result<impl Iterator<Item = (u64, Peak)> + use<'a>> {
-    Ok(pos
-        .u64()?
-        .iter()
-        .flatten()
-        .zip(
-            peak_col
-                .str()?
-                .iter()
-                .flat_map(|p| Peak::from_str(p.unwrap_or_default())),
-        )
-        .flat_map(|(pos, peak)| (peak != Peak::Null).then_some((pos, peak))))
-}
-
-fn df_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result<DataFrame> {
-    let (mut first, mut second, mut mapq, mut sec, mut sup) = (
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-    );
-    for p in pileup.into_iter() {
-        first.push(p.first());
-        second.push(p.second());
-        mapq.push(p.median_mapq().unwrap_or(0));
-        sec.push(p.n_sec);
-        sup.push(p.n_sup);
-    }
-    DataFrame::new(vec![
-        Column::new("pos".into(), st..end + 1),
-        Column::new("first".into(), first),
-        Column::new("second".into(), second),
-        Column::new("mapq".into(), mapq),
-        Column::new("sec".into(), sec),
-        Column::new("sup".into(), sup),
-    ])
-    .map_err(Into::into)
-}
+mod pileup;
 
 // https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
 fn main() -> eyre::Result<()> {
-    let window_size = 500_000;
-    // TODO: Split by peaks and valleys.
-    let n_stdevs = 4;
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Info)
+        .init()?;
 
-    let thr_second_perc = 0.25;
-    let dim = (4000, 700);
-    let output_png = "out.png";
-    let bedfile = "test/dupes/aln_3.bed";
-    let bamfile = "test/dupes/aln_3.bam";
+    let cli = Cli::parse();
+    let cfg = read_cfg(cli.config)?;
+    let bedfile = cli.bed;
+    let bamfile = cli.bam;
+    let outfile = cli.misassemblies;
 
-    let bed = read_bed(Some(bedfile), |name, st, end, _| {
+    // Set rayon threadpool
+    ThreadPoolBuilder::new().num_threads(cli.threads);
+
+    let bed = read_bed(bedfile, |name, st, end, _| {
         Interval::new(st, end, name.to_owned())
-    })?
-    .unwrap();
-    let (ctg, itvs) = bed.iter().next().unwrap();
-    let itv = itvs
-        .iter()
-        .next()
-        .map(|i| Interval::new(i.first, i.last, i.metadata.to_owned()))
-        .unwrap();
+    })?;
 
-    let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(bamfile)?;
-    let pileup = pileup(&mut bam, &itv)?;
+    let ctg_itvs: Vec<Interval<String>> = if bed.is_empty() {
+        // If no intervals, apply to whole genome based on header.
+        let mut bamfile = bam::io::indexed_reader::Builder::default().build_from_path(&bamfile)?;
+        let header = bamfile.read_header()?;
 
-    let df_pileup_info = df_pileup_info(pileup, itv.first.try_into()?, itv.last.try_into()?)?;
-    let df_original_data = df_pileup_info.select(["first", "second", "mapq"])?;
-    let [first, second, mapq] = df_original_data.get_columns() else {
-        bail!("Invalid number of columns. Developer error.")
+        header
+            .reference_sequences()
+            .into_iter()
+            .map(|(ctg, ref_seq)| {
+                let ctg_name: String = ctg.clone().try_into().unwrap();
+                let length = ref_seq.length().get().try_into().unwrap();
+                Interval::new(1, length, ctg_name.clone())
+            })
+            .collect()
+    } else {
+        bed
     };
 
-    let mut df = find_peaks(df_pileup_info, window_size, n_stdevs, thr_second_perc)?;
-    // obed
-    write_tsv(&mut df, "out.tsv")?;
+    // Parallelize by contig.
+    let all_bed_misassemblies: Vec<LazyFrame> = ctg_itvs
+        .into_par_iter()
+        .map(|itv| {
+            let ctg = itv.metadata.as_str();
+            let cov_fname = cli.cov_dir.as_ref().map(|cov_dir| {
+                let mut cov_fname = cov_dir.join(ctg);
+                cov_fname.set_extension("cov");
+                cov_fname
+            });
+            let plot_fname = cli.plot_dir.as_ref().map(|plot_dir| {
+                let mut plot_fname = plot_dir.join(ctg);
+                plot_fname.set_extension("png");
+                plot_fname
+            });
+            // Open the BAM file in read-only per thread.
+            classify_misassemblies(bamfile.clone(), itv, cov_fname, plot_fname, cfg.clone())
+                .unwrap()
+        })
+        .collect();
 
-    let [pos, first_peak, second_peak] = df.get_columns() else {
-        bail!("Invalid number of columns. Developer error.")
-    };
+    let mut all_misassemblies = concat(
+        all_bed_misassemblies,
+        UnionArgs {
+            parallel: true,
+            ..Default::default()
+        },
+    )?
+    .collect()?;
 
-    let first_peaks: Vec<Interval<Peak>> =
-        merge_peaks(peak_cols(pos, first_peak)?, Some(5000), Some(100))?;
+    // Write all misassemblies to file or stdout
+    write_tsv(&mut all_misassemblies, outfile)?;
 
-    let second_peaks: Vec<Interval<Peak>> =
-        merge_peaks(peak_cols(pos, second_peak)?, Some(5000), Some(100))?;
-
-    let bed_first = File::create("first.bed")?;
-    let mut bed_first_writer = BufWriter::new(bed_first);
-    for peak in first_peaks.iter() {
-        writeln!(
-            &mut bed_first_writer,
-            "{ctg}\t{}\t{}\t{:?}",
-            peak.first, peak.last, peak.metadata
-        )?;
-    }
-
-    let bed_second = File::create("second.bed")?;
-    let mut bed_second_writer = BufWriter::new(bed_second);
-    for peak in second_peaks.iter() {
-        writeln!(
-            &mut bed_second_writer,
-            "{ctg}\t{}\t{}\t{:?}",
-            peak.first, peak.last, peak.metadata
-        )?;
-    }
-
-    draw_nucfreq(
-        output_png,
-        dim,
-        ctg,
-        pos,
-        first,
-        second,
-        mapq,
-        first_peaks,
-        second_peaks,
-    )?;
-
+    log::info!("Done!");
     Ok(())
 }
