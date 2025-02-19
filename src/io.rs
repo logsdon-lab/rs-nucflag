@@ -1,14 +1,14 @@
 use std::{
+    fmt::Debug,
     fs::File,
     io::{BufRead, BufReader, Write},
     path::Path,
 };
 
-use coitrees::Interval;
 use itertools::Itertools;
 use polars::prelude::*;
 
-use crate::config::Config;
+use crate::{config::Config, Interval};
 
 /// Write TSV file to file or stdout.
 pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Result<()> {
@@ -35,19 +35,19 @@ pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Re
 /// ```
 /// let records = read_bed(
 ///     "test.bed",
-///     |name: &str, start: i32, stop: i32, other_cols: &str| Interval::new(start, stop, None)
+///     |name: &str, start: u64, stop: u64, other_cols: &str| Interval::new(start, stop, None)
 /// )
 /// ```
 /// BED4 record
 /// ```
 /// let records = read_bed(
 ///     "test.bed",
-///     |name: &str, start: i32, stop: i32, other_cols: &str| Interval::new(start, stop, Some(other_cols.to_owned()))
+///     |name: &str, start: u64, stop: u64, other_cols: &str| Interval::new(start, stop, Some(other_cols.to_owned()))
 /// )
 /// ```
-pub fn read_bed<T: Clone>(
+pub fn read_bed<T: Clone + Debug>(
     bed: Option<impl AsRef<Path>>,
-    intervals_fn: impl Fn(&str, i32, i32, &str) -> Interval<T>,
+    intervals_fn: impl Fn(&str, u64, u64, &str) -> Interval<T>,
 ) -> eyre::Result<Vec<Interval<T>>> {
     let mut intervals = Vec::new();
 
@@ -68,7 +68,7 @@ pub fn read_bed<T: Clone>(
                 log::error!("Invalid line: {line}");
                 continue;
             };
-        let (first, last) = (start.parse::<i32>()?, stop.parse::<i32>()?);
+        let (first, last) = (start.parse::<u64>()?, stop.parse::<u64>()?);
 
         intervals.push(intervals_fn(name, first, last, other_cols))
     }

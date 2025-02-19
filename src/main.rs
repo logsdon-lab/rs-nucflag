@@ -1,21 +1,45 @@
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+};
+
+use crate::{
+    classify::classify_misassemblies,
+    cli::Cli,
+    io::{read_bed, read_cfg},
+    misassembly::MisassemblyType,
+};
 use clap::Parser;
-use classify::classify_misassemblies;
-use cli::Cli;
-use coitrees::Interval;
-use io::{read_bed, read_cfg, write_tsv};
 use noodles::bam::{self};
-use polars::prelude::*;
+use plotters::style::RGBAColor;
 use rayon::{prelude::*, ThreadPoolBuilder};
 
 mod classify;
 mod cli;
 mod config;
 mod draw;
-mod intervals;
 mod io;
 mod misassembly;
 mod peak;
 mod pileup;
+
+#[derive(Debug, Clone)]
+pub struct Interval<T: Clone + std::fmt::Debug> {
+    st: u64,
+    end: u64,
+    metadata: T,
+}
+
+impl<T: Clone + std::fmt::Debug> Interval<T> {
+    pub fn new(st: u64, end: u64, metadata: T) -> Self {
+        assert!(end >= st, "Invalid interval coordinates.");
+        Self { st, end, metadata }
+    }
+
+    pub fn length(&self) -> u64 {
+        self.end - self.st
+    }
+}
 
 // https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
 fn main() -> eyre::Result<()> {
@@ -55,7 +79,7 @@ fn main() -> eyre::Result<()> {
     };
 
     // Parallelize by contig.
-    let all_bed_misassemblies: Vec<LazyFrame> = ctg_itvs
+    let all_regions: Vec<(String, Vec<Interval<(MisassemblyType, u64)>>)> = ctg_itvs
         .into_par_iter()
         .map(|itv| {
             let ctg = itv.metadata.as_str();
@@ -75,18 +99,30 @@ fn main() -> eyre::Result<()> {
         })
         .collect();
 
-    let mut all_misassemblies = concat(
-        all_bed_misassemblies,
-        UnionArgs {
-            parallel: true,
-            ..Default::default()
-        },
-    )?
-    .collect()?;
+    let mut output_fh: Box<dyn Write> =
+        if let Some(outfile) = outfile.as_ref().and_then(|f| f.to_str()) {
+            log::info!("Done! Writing to {outfile}.");
+            let file = File::create(outfile)?;
+            Box::new(BufWriter::new(file))
+        } else {
+            log::info!("Done! Writing to stdout.");
+            let buffer = BufWriter::new(std::io::stdout());
+            Box::new(buffer)
+        };
 
-    // Write all misassemblies to file or stdout
-    write_tsv(&mut all_misassemblies, outfile)?;
+    for (ctg, itvs) in all_regions.into_iter() {
+        for itv in itvs {
+            let (status, cov) = itv.metadata;
+            let (st, end) = (itv.st, itv.end);
+            let item_rgb = RGBAColor::from(&status);
+            // Write BED9
+            writeln!(
+                output_fh,
+                "{ctg}\t{st}\t{end}\t{status:?}\t{cov}\t+\t{st}\t{end}\t{},{},{}",
+                item_rgb.0, item_rgb.1, item_rgb.2
+            )?;
+        }
+    }
 
-    log::info!("Done!");
     Ok(())
 }

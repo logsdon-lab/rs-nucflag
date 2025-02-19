@@ -1,28 +1,21 @@
 use std::path::Path;
 
-use coitrees::Interval;
 use eyre::bail;
-use plotters::{
-    prelude::*,
-    style::full_palette::{ORANGE, PURPLE, TEAL},
-};
+use plotters::{prelude::*, style::full_palette::PURPLE};
 use polars::prelude::*;
 
-use crate::{misassembly::Misassembly, peak::Peak};
+use crate::{misassembly::MisassemblyType, Interval};
 
-pub fn draw_nucfreq(
+pub fn draw_nucfreq<'a>(
     outfile: impl AsRef<Path>,
     dim: (u32, u32),
     title: &str,
-    df_cov: DataFrame,
-    // TODO: Replace with misassemblies hashmap
-    first_peaks: Vec<Interval<Peak>>,
-    second_peaks: Vec<Interval<Peak>>,
+    df_cov: &DataFrame,
+    intervals: impl Iterator<Item = Interval<&'a MisassemblyType>>,
 ) -> eyre::Result<()> {
-    let [positions, first, second, mapq] = df_cov.get_columns() else {
+    let [positions, first, second, _, _, mapq, _] = df_cov.get_columns() else {
         bail!("Invalid number of columns. Developer error.")
     };
-
     let root_area = BitMapBackend::new(&outfile, dim).into_drawing_area();
 
     root_area.fill(&WHITE)?;
@@ -80,43 +73,21 @@ pub fn draw_nucfreq(
         &RED,
     ))?;
 
-    cc.draw_series(LineSeries::new(
-        mapq.u8()?
-            .iter()
-            .flatten()
-            .zip(x_range.clone())
-            .map(|(y, x)| (x, y as u64)),
-        &PURPLE,
-    ))?;
+    // // TODO: Make colorscale.
+    // cc.draw_series(LineSeries::new(
+    //     mapq.u8()?
+    //         .iter()
+    //         .flatten()
+    //         .zip(x_range.clone())
+    //         .map(|(y, x)| (x, y as u64)),
+    //     &PURPLE,
+    // ))?;
 
-    cc.draw_series(first_peaks.iter().map(|pk| {
+    cc.draw_series(intervals.map(|itv| {
         Rectangle::new(
-            [
-                (pk.first.try_into().unwrap(), y_range.end),
-                (pk.last.try_into().unwrap(), y_range.start),
-            ],
+            [(itv.st, y_range.end), (itv.end, y_range.start)],
             ShapeStyle {
-                color: (if pk.metadata == Peak::Low {
-                    ORANGE
-                } else {
-                    GREEN
-                })
-                .to_rgba()
-                .mix(0.5),
-                filled: true,
-                stroke_width: 1,
-            },
-        )
-    }))?;
-
-    cc.draw_series(second_peaks.iter().map(|pk| {
-        Rectangle::new(
-            [
-                (pk.first.try_into().unwrap(), y_range.end),
-                (pk.last.try_into().unwrap(), y_range.start),
-            ],
-            ShapeStyle {
-                color: TEAL.to_rgba().mix(0.5),
+                color: RGBAColor::from(itv.metadata),
                 filled: true,
                 stroke_width: 1,
             },

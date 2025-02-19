@@ -1,12 +1,13 @@
 use std::fs::File;
 
-use coitrees::{GenericInterval, Interval};
 use itertools::Itertools;
 use noodles::{
     bam,
     core::{Position, Region},
     sam::alignment::record::cigar::op::Kind,
 };
+
+use crate::Interval;
 
 #[derive(Debug, Clone, Default)]
 pub struct PileupInfo {
@@ -23,19 +24,20 @@ impl PileupInfo {
     pub fn median_mapq(&self) -> Option<u8> {
         self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
     }
-
+    pub fn counts(&self) -> impl Iterator<Item = u64> {
+        [self.n_a, self.n_t, self.n_g, self.n_c]
+            .into_iter()
+            .sorted_by(|a, b| a.cmp(b))
+            .rev()
+    }
     pub fn first(&self) -> u64 {
-        std::cmp::max(
-            std::cmp::max(self.n_a, self.n_t),
-            std::cmp::max(self.n_g, self.n_c),
-        )
+        // Will never be empty so unwrap safe.
+        self.counts().next().unwrap()
     }
 
     pub fn second(&self) -> u64 {
-        std::cmp::min(
-            std::cmp::max(self.n_a, self.n_t),
-            std::cmp::max(self.n_g, self.n_c),
-        )
+        // Will never be empty so unwrap safe.
+        self.counts().nth(1).unwrap()
     }
 }
 
@@ -70,9 +72,9 @@ pub fn pileup(
     bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
     itv: Interval<String>,
 ) -> eyre::Result<Vec<PileupInfo>> {
-    let st: usize = itv.first.try_into()?;
-    let end: usize = itv.last.try_into()?;
-    let length: usize = itv.len().try_into()?;
+    let st: usize = itv.st.try_into()?;
+    let end: usize = itv.end.try_into()?;
+    let length: usize = itv.length().try_into()?;
 
     let header = bam.read_header()?;
     let region = Region::new(
@@ -82,7 +84,7 @@ pub fn pileup(
 
     // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignmentfile.pyx#L1458
     let query = bam.query(&header, &region)?;
-    let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length];
+    let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length + 1];
 
     log::info!("Generating pileup over {}:{st}-{end}.", region.name());
     for read in query.into_iter().flatten() {

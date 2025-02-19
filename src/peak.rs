@@ -1,27 +1,11 @@
-use std::{convert::Infallible, str::FromStr};
+use std::fmt::Debug;
 
-use coitrees::{GenericInterval, Interval};
 use eyre::bail;
 use polars::prelude::*;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Peak {
-    Low,
-    High,
-    Null,
-}
+use crate::Interval;
 
-impl FromStr for Peak {
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "low" => Ok(Peak::Low),
-            "high" => Ok(Peak::High),
-            _ => Ok(Peak::Null),
-        }
-    }
-}
+pub type Position<T> = (u64, T);
 
 macro_rules! zscore_peak_call {
     ($colname:ident, $colname_mean:ident, $colname_stdev:ident, $n_zscore:expr) => {
@@ -70,14 +54,15 @@ pub fn find_peaks(
     else {
         bail!("No colname.")
     };
-    let df_pileup = df_pileup
+    let lf_pileup = df_pileup
         .lazy()
+        // Cast to i64 as need negative values to detect both peaks/valleys
         .cast(
             PlHashMap::from_iter([(colname.as_str(), DataType::Int64)]),
             true,
         )
-        .collect()?;
-    let lf_pileup = df_pileup.select(["pos", &colname])?.lazy();
+        .select([col("pos"), col(&colname)]);
+
     // Filter by percentile if added.
     let lf_pileup = if let Some(min_perc) = min_perc {
         lf_pileup
@@ -94,9 +79,8 @@ pub fn find_peaks(
         lf_pileup
     };
 
-    // // TODO: Might need to look at mapq for HSAT and false dupes.
-    let mean_col = format!("{}_mean", colname);
-    let stdev_col = format!("{}_stdev", colname);
+    let mean_col = format!("{colname}_mean");
+    let stdev_col = format!("{colname}_stdev");
 
     let lf_pileup = lf_pileup
         .with_column(
@@ -111,109 +95,168 @@ pub fn find_peaks(
                 .fill_null(col(&colname).std(1))
                 .alias(&stdev_col),
         )
-        .with_column(zscore_peak_call!(colname, mean_col, stdev_col, n_zscore));
-
+        .with_column(zscore_peak_call!(colname, mean_col, stdev_col, n_zscore))
+        // Go back to i64
+        .cast(
+            PlHashMap::from_iter([(colname.as_str(), DataType::UInt64)]),
+            true,
+        );
     Ok(lf_pileup)
 }
 
-pub fn merge_peaks(
-    peaks: impl Iterator<Item = (u64, Peak)>,
+/// Merge positions `(u64, T)` into [`Interval`]s.
+///
+/// # Args
+/// * `positions`: Positions iterator with variable metadata type. Must be sorted.
+/// * `fn_cmp_eq`: Function to determine equality and whether to group positions.
+/// * `fn_build_itv`: Function to construct interval.
+/// * `fn_bp_merge`: Distance in base pairs to merge interval.
+/// * `thr_bp_peak`: Minimum size of interval.
+///
+pub fn merge_positions<T: Debug + Clone>(
+    positions: impl Iterator<Item = Position<T>>,
+    fn_cmp_eq: impl Fn(&Position<T>, &Position<T>) -> bool,
+    fn_build_itv: impl Fn(&[Position<T>]) -> eyre::Result<Interval<T>>,
     bp_merge: Option<u64>,
-    thr_bp_peak: Option<u64>,
-) -> eyre::Result<Vec<Interval<Peak>>> {
-    let mut final_peaks: Vec<Interval<Peak>> = vec![];
-    let mut curr_peak: Vec<(u64, Peak)> = vec![];
+    min_bp_itv: Option<u64>,
+) -> eyre::Result<Vec<Interval<T>>> {
+    let mut final_itvs: Vec<Interval<T>> = vec![];
+    let mut curr_itv: Vec<Position<T>> = vec![];
     let bp_merge = bp_merge.unwrap_or(1);
-    let thr_bp_peak = thr_bp_peak.unwrap_or(1).try_into()?;
+    let min_bp_itv = min_bp_itv.unwrap_or(1);
 
-    fn build_interval(curr_peak: &[(u64, Peak)]) -> eyre::Result<Interval<Peak>> {
-        let (curr_peak_first, curr_peak_last) =
-            (curr_peak.first().unwrap(), curr_peak.last().unwrap());
-        Ok(Interval::new(
-            curr_peak_first.0.try_into()?,
-            curr_peak_last.0.try_into()?,
-            curr_peak_first.1,
-        ))
-    }
-
-    for pk in peaks {
-        if let Some(prev_pk) = curr_peak.last() {
+    for pos in positions.into_iter() {
+        if let Some(prev_pos) = curr_itv.last() {
             // If separate peak type, create new.
-            if prev_pk.1 == pk.1 {
-                let dst_diff = pk.0 - prev_pk.0;
+            if fn_cmp_eq(prev_pos, &pos) {
+                let dst_diff = pos.0 - prev_pos.0;
                 // Greater than merge distance, add current peak elements. Then store new peak.
                 if dst_diff > bp_merge {
-                    final_peaks.push(build_interval(&curr_peak)?);
-                    curr_peak.clear();
+                    final_itvs.push(fn_build_itv(&curr_itv)?);
+                    curr_itv.clear();
                 }
             } else {
-                final_peaks.push(build_interval(&curr_peak)?);
-                curr_peak.clear()
+                final_itvs.push(fn_build_itv(&curr_itv)?);
+                curr_itv.clear()
             }
         }
-        curr_peak.push(pk);
+        curr_itv.push(pos);
     }
-    if !curr_peak.is_empty() {
-        final_peaks.push(build_interval(&curr_peak)?);
-        curr_peak.clear();
+    if !curr_itv.is_empty() {
+        final_itvs.push(fn_build_itv(&curr_itv)?);
+        curr_itv.clear();
     }
-    final_peaks.retain(|pk| pk.len() > thr_bp_peak);
-    Ok(final_peaks)
+    final_itvs.retain(|itv| itv.length() >= min_bp_itv);
+    Ok(final_itvs)
 }
 
 #[cfg(test)]
 mod test {
-    use super::{merge_peaks, Peak};
+    use std::fmt::Debug;
+
+    use crate::Interval;
+
+    use super::merge_positions;
+
+    fn assert_itvs_equal<T>(itvs_1: impl Iterator<Item = T>, itvs_2: impl Iterator<Item = T>)
+    where
+        T: PartialEq + Debug,
+    {
+        itvs_1
+            .into_iter()
+            .zip(itvs_2.into_iter())
+            .for_each(|(i1, i2)| assert_eq!(i1, i2));
+    }
+
+    fn build_interval<'a>(
+        curr_peak: &[(u64, (&'a str, u64))],
+    ) -> eyre::Result<Interval<(&'a str, u64)>> {
+        let curr_peak_len: u64 = curr_peak.len().try_into()?;
+        // Find min and max position. Also calculate arithmetic mean.
+        let (pk_first, pk_last, pk_value_sum) =
+            curr_peak.iter().fold((u64::MAX, 0u64, 0u64), |acc, x| {
+                let (st, end, val_sum) = acc;
+                let (nxt_pos, (_, nxt_val)) = x;
+                (
+                    std::cmp::min(st, *nxt_pos),
+                    std::cmp::max(end, *nxt_pos),
+                    val_sum + *nxt_val,
+                )
+            });
+        let curr_peak_type = curr_peak
+            .first()
+            .map(|(_, pk_mdata)| pk_mdata.0)
+            .unwrap_or("null");
+        Ok(Interval::new(
+            pk_first.try_into()?,
+            pk_last.try_into()?,
+            (curr_peak_type, pk_value_sum / curr_peak_len),
+        ))
+    }
 
     #[test]
     fn test_merge_peaks() {
-        let peaks: Vec<(u64, Peak)> = vec![
-            (1, Peak::Null),
-            (2, Peak::Null),
-            (3, Peak::Null),
-            (4, Peak::Null),
-            (7, Peak::Null),
-            (8, Peak::Null),
-            (1222, Peak::Null),
+        // (pos, (type, value))
+        let peaks: Vec<(u64, (&str, u64))> = vec![
+            (1, ("null", 1)),
+            (2, ("null", 1)),
+            (3, ("null", 1)),
+            (4, ("null", 1)),
+            (7, ("null", 2)),
+            (8, ("null", 4)),
+            (1222, ("null", 1)),
         ];
-        let itvs = merge_peaks(peaks.into_iter(), Some(1), Some(0)).unwrap();
+        let itvs = merge_positions(
+            peaks.into_iter(),
+            |m1, m2| m1 == m2,
+            build_interval,
+            Some(1),
+            Some(0),
+        )
+        .unwrap();
 
-        assert_eq!(
-            itvs.into_iter()
-                .map(|itv| (itv.first, itv.last, itv.metadata))
-                .collect::<Vec<_>>(),
-            vec![
-                (1, 4, Peak::Null),
-                (7, 8, Peak::Null),
-                (1222, 1222, Peak::Null),
+        assert_itvs_equal(
+            itvs.into_iter().map(|itv| (itv.st, itv.end, itv.metadata)),
+            [
+                (1, 4, ("null", 1)),
+                (7, 8, ("null", 3)),
+                (1222, 1222, ("null", 1)),
             ]
+            .into_iter(),
         )
     }
 
     #[test]
     fn test_merge_sep_peaks() {
-        let peaks: Vec<(u64, Peak)> = vec![
-            (1, Peak::Null),
-            (2, Peak::Null),
-            (3, Peak::High),
-            (4, Peak::Low),
-            (7, Peak::Null),
-            (8, Peak::Null),
-            (1222, Peak::Null),
+        // (pos, (type, value))
+        let peaks: Vec<(u64, (&str, u64))> = vec![
+            (1, ("null", 1)),
+            (2, ("null", 1)),
+            (3, ("high", 1)),
+            (4, ("low", 1)),
+            (7, ("null", 2)),
+            (8, ("null", 4)),
+            (1222, ("null", 1)),
         ];
-        let itvs = merge_peaks(peaks.into_iter(), Some(1), Some(0)).unwrap();
+        let itvs = merge_positions(
+            peaks.into_iter(),
+            |m1, m2| m1 == m2,
+            build_interval,
+            Some(1),
+            Some(0),
+        )
+        .unwrap();
 
-        assert_eq!(
-            itvs.into_iter()
-                .map(|itv| (itv.first, itv.last, itv.metadata))
-                .collect::<Vec<_>>(),
-            vec![
-                (1, 2, Peak::Null),
-                (3, 3, Peak::High),
-                (4, 4, Peak::Low),
-                (7, 8, Peak::Null),
-                (1222, 1222, Peak::Null),
+        assert_itvs_equal(
+            itvs.into_iter().map(|itv| (itv.st, itv.end, itv.metadata)),
+            [
+                (1, 2, ("null", 1)),
+                (3, 3, ("high", 1)),
+                (4, 4, ("low", 1)),
+                (7, 8, ("null", 3)),
+                (1222, 1222, ("null", 1)),
             ]
+            .into_iter(),
         )
     }
 }
