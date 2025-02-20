@@ -1,15 +1,13 @@
-use std::{path::Path, str::FromStr};
+use std::path::Path;
 
 use crate::{
     config::Config,
     draw::draw_nucfreq,
     io::write_tsv,
-    misassembly::MisassemblyType,
-    peak::{find_peaks, merge_positions},
+    peak::find_peaks,
     pileup::{pileup, PileupInfo},
     Interval,
 };
-use itertools::multizip;
 use noodles::bam::{self};
 use polars::prelude::*;
 
@@ -39,24 +37,6 @@ fn merge_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result
     .map_err(Into::into)
 }
 
-fn build_interval(
-    positions: &[(u64, (MisassemblyType, u64))],
-) -> eyre::Result<Interval<(MisassemblyType, u64)>> {
-    let (st, end, (typ, cov)) =
-        positions
-            .iter()
-            .fold((u64::MAX, 0u64, (MisassemblyType::Null, 0)), |acc, x| {
-                let (st, end, (_, cov_sum)) = acc;
-                let (curr_pos, (curr_typ, curr_cov)) = x;
-                (
-                    std::cmp::min(st, *curr_pos),
-                    std::cmp::max(end, *curr_pos),
-                    (curr_typ.clone(), curr_cov + cov_sum),
-                )
-            });
-    Ok(Interval::new(st, end, (typ, cov)))
-}
-
 /// Classify misasemblies from alignment read coverage.
 ///
 /// # Arguments
@@ -71,13 +51,13 @@ pub fn classify_misassemblies(
     cov_bed: Option<impl AsRef<Path>>,
     plot: Option<impl AsRef<Path>>,
     cfg: Config,
-) -> eyre::Result<(String, Vec<Interval<(MisassemblyType, u64)>>)> {
+) -> eyre::Result<(String, DataFrame)> {
     let ctg = itv.metadata.clone();
     let (st, end) = (itv.st, itv.end);
     let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(&bamfile)?;
     let pileup = pileup(&mut bam, itv)?;
 
-    let df_raw_pileup = merge_pileup_info(pileup, st, end)?;
+    let df_raw_pileup = merge_pileup_info(pileup, st.get(), end.get())?;
 
     // TODO: Figure out both collapses, misjoins, and false duplications
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
@@ -86,7 +66,7 @@ pub fn classify_misassemblies(
     let lf_first_peaks = find_peaks(
         df_raw_pileup.select(["pos", "first"])?,
         cfg.first.window_size,
-        cfg.first.n_zscores_collapse,
+        cfg.first.n_zscores,
         None,
     )?;
     let lf_second_peaks = find_peaks(
@@ -119,20 +99,11 @@ pub fn classify_misassemblies(
             .alias("het_ratio"),
         ])
         .with_columns([
-            // collapse_other
-            // Regions with higher than expected het ratio.
-            when(
-                col("het_ratio")
-                    .gt(lit(cfg.second.thr_het_ratio))
-                    .and(col("second_peak").eq(lit("high")))
-                    .and(col("first_peak").eq(lit("null"))),
-            )
-            .then(lit("collapse_other"))
             // misjoin
             // Regions with either:
             // * Zero coverage. Might be scaffold or misjoined contig. Without reference, not known.
             // * A dip in coverage with a high het ratio.
-            .when(
+            when(
                 col("first").eq(lit(0)).or(col("first_peak")
                     .eq(lit("low"))
                     .and(col("second_peak").eq(lit("high")))),
@@ -163,6 +134,12 @@ pub fn classify_misassemblies(
                     .and(col("mapq").eq(lit(0))),
             )
             .then(lit("false_dupe"))
+            // collapse_other
+            // Regions with higher than expected het ratio.
+            .when(
+                col("het_ratio").gt(lit(cfg.second.thr_het_ratio)), // .and(col("second_peak").eq(lit("high")))
+            )
+            .then(lit("collapse_other"))
             .otherwise(lit("good"))
             .alias("status"),
         ])
@@ -184,56 +161,35 @@ pub fn classify_misassemblies(
 
     // Construct intervals.
     // Store [st,end,type,cov]
-    // TODO: Must separate out for first and second.
-    let itvs_all: Vec<Interval<(MisassemblyType, u64)>> = merge_positions(
-        multizip((
-            df_pileup.column("pos")?.u64()?.iter().flatten(),
-            df_pileup.column("first")?.u64()?.iter().flatten(),
-            df_pileup.column("second")?.u64()?.iter().flatten(),
-            df_pileup
-                .column("status")?
-                .str()?
-                .iter()
-                .flatten()
-                .map(String::from),
-        ))
-        .map(|(pos, first, second, status)| {
-            (
-                pos,
-                (MisassemblyType::from_str(&status).unwrap(), first + second),
-            )
-        }),
-        |(_pos1, (typ1, _cov1)), (_pos2, (typ2, _cov2))| typ1 == typ2,
-        build_interval,
-        Some(cfg.second.bp_merge.try_into()?),
-        Some(cfg.second.min_bp_peak.try_into()?),
-    )?;
+    let bp_filter: u64 = cfg.general.min_bp.try_into()?;
+    let df_itvs = df_pileup
+        .clone()
+        .lazy()
+        .with_column(col("status").rle_id().alias("group"))
+        .group_by([col("group")])
+        .agg([
+            col("pos").min().alias("st"),
+            col("pos").max().alias("end") + lit(1),
+            (col("first") + col("second")).mean().alias("cov"),
+            col("status").first(),
+        ])
+        .filter((col("end") - col("st")).lt(bp_filter))
+        .collect()?;
 
-    let misasemblies: Vec<Interval<&MisassemblyType>> = itvs_all
-        .iter()
-        .flat_map(|itv| {
-            (itv.metadata.0 != MisassemblyType::Null).then_some(Interval::new(
-                itv.st,
-                itv.end,
-                &itv.metadata.0,
-            ))
-        })
-        .collect();
+    // TODO: Then merge.
 
-    log::info!(
-        "Detected {} misassemblies for {ctg}:{st}-{end}.",
-        misasemblies.len()
-    );
+    let (n_misassemblies, _) = df_itvs
+        .select(["status"])?
+        .lazy()
+        .filter(col("status").neq("good"))
+        .collect()?
+        .shape();
+
+    log::info!("Detected {n_misassemblies} misassemblies for {ctg}:{st}-{end}.",);
     if let Some(plot_fname) = plot {
         log::info!("Plotting misassemblies for {ctg}:{st}-{end}.");
-        draw_nucfreq(
-            plot_fname,
-            cfg.plot.dim,
-            &ctg,
-            &df_pileup,
-            misasemblies.into_iter(),
-        )?;
+        draw_nucfreq(plot_fname, cfg.general.plot_dim, &ctg, &df_pileup, &df_itvs)?;
     }
     // Add ctg.
-    Ok((ctg, itvs_all))
+    Ok((ctg, df_itvs))
 }

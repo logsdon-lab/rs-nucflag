@@ -1,5 +1,6 @@
 use std::fs::File;
 
+use eyre::ContextCompat;
 use itertools::Itertools;
 use noodles::{
     bam,
@@ -23,6 +24,14 @@ pub struct PileupInfo {
 impl PileupInfo {
     pub fn median_mapq(&self) -> Option<u8> {
         self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
+    }
+    #[allow(unused)]
+    pub fn mean_mapq(&self) -> eyre::Result<u8> {
+        self.mapq
+            .iter()
+            .sum::<u8>()
+            .checked_sub(TryInto::<u8>::try_into(self.mapq.len())?)
+            .context("No mapq.")
     }
     pub fn counts(&self) -> impl Iterator<Item = u64> {
         [self.n_a, self.n_t, self.n_g, self.n_c]
@@ -72,8 +81,8 @@ pub fn pileup(
     bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
     itv: Interval<String>,
 ) -> eyre::Result<Vec<PileupInfo>> {
-    let st: usize = itv.st.try_into()?;
-    let end: usize = itv.end.try_into()?;
+    let st: usize = itv.st.get().try_into()?;
+    let end: usize = itv.end.get().try_into()?;
     let length: usize = itv.length().try_into()?;
 
     let header = bam.read_header()?;

@@ -1,18 +1,23 @@
 use std::{
     fs::File,
     io::{BufWriter, Write},
+    str::FromStr,
 };
 
 use crate::{
     classify::classify_misassemblies,
     cli::Cli,
     io::{read_bed, read_cfg},
-    misassembly::MisassemblyType,
 };
 use clap::Parser;
+use itertools::{multizip, Itertools};
+use misassembly::MisassemblyType;
 use noodles::bam::{self};
 use plotters::style::RGBAColor;
+
+use polars::prelude::*;
 use rayon::{prelude::*, ThreadPoolBuilder};
+use utils::Interval;
 
 mod classify;
 mod cli;
@@ -22,24 +27,7 @@ mod io;
 mod misassembly;
 mod peak;
 mod pileup;
-
-#[derive(Debug, Clone)]
-pub struct Interval<T: Clone + std::fmt::Debug> {
-    st: u64,
-    end: u64,
-    metadata: T,
-}
-
-impl<T: Clone + std::fmt::Debug> Interval<T> {
-    pub fn new(st: u64, end: u64, metadata: T) -> Self {
-        assert!(end >= st, "Invalid interval coordinates.");
-        Self { st, end, metadata }
-    }
-
-    pub fn length(&self) -> u64 {
-        self.end - self.st
-    }
-}
+mod utils;
 
 // https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
 fn main() -> eyre::Result<()> {
@@ -57,7 +45,7 @@ fn main() -> eyre::Result<()> {
     ThreadPoolBuilder::new().num_threads(cli.threads);
 
     let bed = read_bed(bedfile, |name, st, end, _| {
-        Interval::new(st, end, name.to_owned())
+        Interval::new(st, end, name.to_owned()).unwrap()
     })?;
 
     let ctg_itvs: Vec<Interval<String>> = if bed.is_empty() {
@@ -71,7 +59,7 @@ fn main() -> eyre::Result<()> {
             .map(|(ctg, ref_seq)| {
                 let ctg_name: String = ctg.clone().try_into().unwrap();
                 let length = ref_seq.length().get().try_into().unwrap();
-                Interval::new(1, length, ctg_name.clone())
+                Interval::new(1, length, ctg_name.clone()).unwrap()
             })
             .collect()
     } else {
@@ -79,7 +67,7 @@ fn main() -> eyre::Result<()> {
     };
 
     // Parallelize by contig.
-    let all_regions: Vec<(String, Vec<Interval<(MisassemblyType, u64)>>)> = ctg_itvs
+    let all_regions: Vec<(String, DataFrame)> = ctg_itvs
         .into_par_iter()
         .map(|itv| {
             let ctg = itv.metadata.as_str();
@@ -111,10 +99,18 @@ fn main() -> eyre::Result<()> {
         };
 
     for (ctg, itvs) in all_regions.into_iter() {
-        for itv in itvs {
-            let (status, cov) = itv.metadata;
-            let (st, end) = (itv.st, itv.end);
-            let item_rgb = RGBAColor::from(&status);
+        let (sts, ends, covs, statuses): (&Column, &Column, &Column, &Column) = itvs
+            .columns(["st", "end", "cov", "status"])?
+            .into_iter()
+            .collect_tuple()
+            .unwrap();
+        for (st, end, cov, status) in multizip((
+            sts.u64()?.iter().flatten(),
+            ends.u64()?.iter().flatten(),
+            covs.u64()?.iter().flatten(),
+            statuses.str()?.iter().flatten(),
+        )) {
+            let item_rgb = RGBAColor::from(MisassemblyType::from_str(status)?);
             // Write BED9
             writeln!(
                 output_fh,

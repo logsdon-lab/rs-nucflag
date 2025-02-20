@@ -1,17 +1,18 @@
-use std::path::Path;
+use std::{path::Path, str::FromStr};
 
 use eyre::bail;
+use itertools::{multizip, Itertools};
 use plotters::{prelude::*, style::full_palette::PURPLE};
 use polars::prelude::*;
 
-use crate::{misassembly::MisassemblyType, Interval};
+use crate::misassembly::MisassemblyType;
 
-pub fn draw_nucfreq<'a>(
+pub fn draw_nucfreq(
     outfile: impl AsRef<Path>,
     dim: (u32, u32),
     title: &str,
     df_cov: &DataFrame,
-    intervals: impl Iterator<Item = Interval<&'a MisassemblyType>>,
+    df_itvs: &DataFrame,
 ) -> eyre::Result<()> {
     let [positions, first, second, _, _, mapq, _] = df_cov.get_columns() else {
         bail!("Invalid number of columns. Developer error.")
@@ -73,7 +74,7 @@ pub fn draw_nucfreq<'a>(
         &RED,
     ))?;
 
-    // // TODO: Make colorscale.
+    // TODO: Make colorscale.
     // cc.draw_series(LineSeries::new(
     //     mapq.u8()?
     //         .iter()
@@ -83,16 +84,29 @@ pub fn draw_nucfreq<'a>(
     //     &PURPLE,
     // ))?;
 
-    cc.draw_series(intervals.map(|itv| {
-        Rectangle::new(
-            [(itv.st, y_range.end), (itv.end, y_range.start)],
-            ShapeStyle {
-                color: RGBAColor::from(itv.metadata),
-                filled: true,
-                stroke_width: 1,
-            },
-        )
-    }))?;
+    let (sts, ends, statuses): (&Column, &Column, &Column) = df_itvs
+        .columns(["st", "end", "status"])?
+        .into_iter()
+        .collect_tuple()
+        .unwrap();
+
+    cc.draw_series(
+        multizip((
+            sts.u64()?.iter().flatten(),
+            ends.u64()?.iter().flatten(),
+            statuses.str()?.iter().flatten(),
+        ))
+        .map(|(st, end, status)| {
+            Rectangle::new(
+                [(st, y_range.end), (end, y_range.start)],
+                ShapeStyle {
+                    color: RGBAColor::from(MisassemblyType::from_str(status).unwrap()),
+                    filled: true,
+                    stroke_width: 1,
+                },
+            )
+        }),
+    )?;
 
     root_area.present()?;
     Ok(())

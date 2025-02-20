@@ -15,8 +15,8 @@ pub enum MisassemblyType {
     Null,
 }
 
-impl From<&MisassemblyType> for RGBAColor {
-    fn from(value: &MisassemblyType) -> Self {
+impl From<MisassemblyType> for RGBAColor {
+    fn from(value: MisassemblyType) -> Self {
         match value {
             MisassemblyType::CollapseOther => YELLOW,
             MisassemblyType::CollapseVar => BLUE,
