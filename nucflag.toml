@@ -1,14 +1,14 @@
 [general]
-plot_dim = [4000, 750]
+plot_dim = [8000, 1500]
 bp_merge = 5000
 min_bp = 1
 
 [first]
-n_zscores = 3.4
-window_size = 500_000
+n_zscores = 4
+window_size = 1_000_000
 
 [second]
-n_zscores = 3.4
-window_size = 500_000
-min_perc = 0.05
-thr_het_ratio = 0.1
+n_zscores = 4
+window_size = 1_000_000
+min_perc = 0.1
+thr_het_ratio = 0.2

@@ -1,25 +1,6 @@
 use eyre::bail;
 use polars::prelude::*;
 
-macro_rules! zscore_peak_call {
-    ($colname:ident, $colname_mean:ident, $colname_stdev:ident, $colname_peak:ident, $n_zscore:expr) => {
-        when(
-            // (|x - mean| / stdev) > stdev * n_stdev
-            ((col(&$colname) - col(&$colname_mean)) / col(&$colname_stdev))
-                .abs()
-                .gt(lit($n_zscore)),
-        )
-        .then(
-            // Then classify is peak or valley
-            when(col(&$colname).gt(col(&$colname_mean)))
-                .then(lit("high"))
-                .otherwise(lit("low")),
-        )
-        .otherwise(lit("null"))
-        .alias(&$colname_peak)
-    };
-}
-
 // Polars port of https://github.com/swizard0/smoothed_z_score/blob/master/src/lib.rs
 // Remove influence parameter.
 pub fn find_peaks(
@@ -27,6 +8,7 @@ pub fn find_peaks(
     window_size: usize,
     n_zscore: f32,
     min_perc: Option<f32>,
+    global_zscore: bool
 ) -> eyre::Result<LazyFrame> {
     assert_eq!(
         df_pileup.get_column_names().len(),
@@ -52,7 +34,7 @@ pub fn find_peaks(
         .lazy()
         // Cast to i64 as need negative values to detect both peaks/valleys
         .cast(
-            PlHashMap::from_iter([(colname.as_str(), DataType::Int64)]),
+            PlHashMap::from_iter([(colname.as_str(), DataType::Float32)]),
             true,
         )
         .select([col("pos"), col(&colname)]);
@@ -60,6 +42,8 @@ pub fn find_peaks(
     let mean_col = format!("{colname}_mean");
     let stdev_col = format!("{colname}_stdev");
     let peak_col = format!("{colname}_peak");
+    let zscore_col = format!("{colname}_zscore");
+    let global_zscore_col = format!("{colname}_all_zscore");
 
     let lf_pileup = lf_pileup
         .with_column(
@@ -74,13 +58,18 @@ pub fn find_peaks(
                 .fill_null(col(&colname).std(1))
                 .alias(&stdev_col),
         )
-        .with_column(zscore_peak_call!(
-            colname, mean_col, stdev_col, peak_col, n_zscore
-        ))
-        // Go back to i64
-        .cast(
-            PlHashMap::from_iter([(colname.as_str(), DataType::UInt64)]),
-            true,
+        // Calculate windowed zscore.
+        .with_column(((col(&colname) - col(&mean_col)) / col(&stdev_col)).alias(&zscore_col))
+        .with_column(
+            when(col(&zscore_col).abs().gt(lit(n_zscore)))
+                .then(
+                    // Then classify is peak or valley
+                    when(col(&colname).gt(col(&mean_col)))
+                        .then(lit("high"))
+                        .otherwise(lit("low")),
+                )
+                .otherwise(lit("null"))
+                .alias(&peak_col),
         );
 
     // Filter by percentile if added.
@@ -89,7 +78,6 @@ pub fn find_peaks(
             .with_column(
                 col(&colname)
                     .rank(RankOptions::default(), None)
-                    .cast(DataType::Float32)
                     .alias("rank"),
             )
             // Filter positions under threshold percentile
@@ -103,7 +91,22 @@ pub fn find_peaks(
         lf_pileup
     };
 
-    Ok(lf_pileup)
+    let lf_pileup = if global_zscore {
+        // Calculate global zscore.
+        lf_pileup.with_column(
+            ((col(&colname) - col(&colname).mean()) / col(&colname).std(1))
+                .alias(global_zscore_col),
+        )
+    } else {
+        lf_pileup
+    };
+    // Go back to u64
+    Ok(lf_pileup
+        .cast(
+            PlHashMap::from_iter([(colname.as_str(), DataType::UInt64)]),
+            true,
+        )
+    )
 }
 
 #[cfg(test)]

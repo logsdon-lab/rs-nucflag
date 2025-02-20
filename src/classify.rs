@@ -37,6 +37,14 @@ fn merge_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result
     .map_err(Into::into)
 }
 
+
+fn merge_intervals(df_itvs: DataFrame, bp_merge: u64, bp_filter: u64) -> DataFrame {
+    // TODO: Need to merge by interval type.
+    // TODO: Need to convert completely contained intervals to correct type.
+
+    unimplemented!()
+}
+
 /// Classify misasemblies from alignment read coverage.
 ///
 /// # Arguments
@@ -58,8 +66,6 @@ pub fn classify_misassemblies(
     let pileup = pileup(&mut bam, itv)?;
 
     let df_raw_pileup = merge_pileup_info(pileup, st.get(), end.get())?;
-
-    // TODO: Figure out both collapses, misjoins, and false duplications
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
     // This is never filtered so safe to left join without removing data.
@@ -68,12 +74,14 @@ pub fn classify_misassemblies(
         cfg.first.window_size,
         cfg.first.n_zscores,
         None,
+        true
     )?;
     let lf_second_peaks = find_peaks(
         df_raw_pileup.select(["pos", "second"])?,
         cfg.second.window_size,
         cfg.second.n_zscores,
         Some(cfg.second.min_perc),
+        false
     )?;
 
     let mut df_pileup = lf_first_peaks
@@ -126,11 +134,13 @@ pub fn classify_misassemblies(
             )
             .then(lit("collapse"))
             // false_dupe
-            // Region with half of the expected coverage and zero-mapq due to multi-mapping.
+            // Region with half of the expected coverage, n-zscores less than the global mean, and zero-mapq due to multi-mapping.
             // Either a duplicated contig or duplicated region.
             .when(
                 col("first")
                     .lt_eq(col("first").median() / lit(2))
+                    // Needs to scale with coverage.
+                    .and(col("first_all_zscore").lt(lit(-2.5)))
                     .and(col("mapq").eq(lit(0))),
             )
             .then(lit("false_dupe"))
@@ -161,35 +171,42 @@ pub fn classify_misassemblies(
 
     // Construct intervals.
     // Store [st,end,type,cov]
-    let bp_filter: u64 = cfg.general.min_bp.try_into()?;
     let df_itvs = df_pileup
-        .clone()
+        .select(["pos", "first", "second", "status"])?
         .lazy()
         .with_column(col("status").rle_id().alias("group"))
         .group_by([col("group")])
         .agg([
             col("pos").min().alias("st"),
-            col("pos").max().alias("end") + lit(1),
+            col("pos").max().alias("end"),
             (col("first") + col("second")).mean().alias("cov"),
             col("status").first(),
-        ])
-        .filter((col("end") - col("st")).lt(bp_filter))
-        .collect()?;
+        ]).collect()?;
 
-    // TODO: Then merge.
+    let bp_filter: u64 = cfg.general.min_bp.try_into()?;
+    let bp_merge: u64 = cfg.general.bp_merge.try_into()?;
 
-    let (n_misassemblies, _) = df_itvs
+    // Then merge and filter. Need to use coitrees.
+    let df_itvs_final = merge_intervals(df_itvs, bp_merge, bp_filter);
+
+    let (n_misassemblies, _) = df_itvs_final
         .select(["status"])?
         .lazy()
-        .filter(col("status").neq("good"))
+        .filter(col("status").neq(lit("good")))
         .collect()?
         .shape();
 
     log::info!("Detected {n_misassemblies} misassemblies for {ctg}:{st}-{end}.",);
     if let Some(plot_fname) = plot {
         log::info!("Plotting misassemblies for {ctg}:{st}-{end}.");
-        draw_nucfreq(plot_fname, cfg.general.plot_dim, &ctg, &df_pileup, &df_itvs)?;
+        draw_nucfreq(
+            plot_fname,
+            cfg.general.plot_dim,
+            &ctg,
+            &df_pileup,
+            &df_itvs_final,
+        )?;
     }
     // Add ctg.
-    Ok((ctg, df_itvs))
+    Ok((ctg, df_itvs_final))
 }

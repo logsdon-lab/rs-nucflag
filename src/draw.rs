@@ -98,7 +98,7 @@ pub fn draw_nucfreq(
         ))
         .map(|(st, end, status)| {
             Rectangle::new(
-                [(st, y_range.end), (end, y_range.start)],
+                [(st, y_range.end), (end + 2000, y_range.start)],
                 ShapeStyle {
                     color: RGBAColor::from(MisassemblyType::from_str(status).unwrap()),
                     filled: true,

@@ -107,7 +107,7 @@ fn main() -> eyre::Result<()> {
         for (st, end, cov, status) in multizip((
             sts.u64()?.iter().flatten(),
             ends.u64()?.iter().flatten(),
-            covs.u64()?.iter().flatten(),
+            covs.f64()?.iter().flatten(),
             statuses.str()?.iter().flatten(),
         )) {
             let item_rgb = RGBAColor::from(MisassemblyType::from_str(status)?);
