@@ -1,5 +1,6 @@
 use std::fs::File;
 
+use coitrees::{GenericInterval, Interval};
 use eyre::ContextCompat;
 use itertools::Itertools;
 use noodles::{
@@ -7,8 +8,6 @@ use noodles::{
     core::{Position, Region},
     sam::alignment::record::cigar::op::Kind,
 };
-
-use crate::Interval;
 
 #[derive(Debug, Clone, Default)]
 pub struct PileupInfo {
@@ -81,9 +80,9 @@ pub fn pileup(
     bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
     itv: Interval<String>,
 ) -> eyre::Result<Vec<PileupInfo>> {
-    let st: usize = itv.st.get().try_into()?;
-    let end: usize = itv.end.get().try_into()?;
-    let length: usize = itv.length().try_into()?;
+    let st: usize = itv.first.try_into()?;
+    let end: usize = itv.last.try_into()?;
+    let length: usize = itv.len().try_into()?;
 
     let header = bam.read_header()?;
     let region = Region::new(
@@ -93,7 +92,7 @@ pub fn pileup(
 
     // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignmentfile.pyx#L1458
     let query = bam.query(&header, &region)?;
-    let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length + 1];
+    let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length];
 
     log::info!("Generating pileup over {}:{st}-{end}.", region.name());
     for read in query.into_iter().flatten() {

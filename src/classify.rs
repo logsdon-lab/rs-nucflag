@@ -1,13 +1,17 @@
-use std::path::Path;
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 use crate::{
     config::Config,
-    draw::draw_nucfreq,
+    intervals::merge_overlapping_intervals,
     io::write_tsv,
     peak::find_peaks,
     pileup::{pileup, PileupInfo},
-    Interval,
 };
+use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
+use itertools::multizip;
 use noodles::bam::{self};
 use polars::prelude::*;
 
@@ -37,12 +41,89 @@ fn merge_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result
     .map_err(Into::into)
 }
 
+fn merge_misassemblies(
+    df_itvs: DataFrame,
+    bp_merge: u64,
+    bp_filter: u64,
+) -> eyre::Result<DataFrame> {
+    let bp_merge: i32 = bp_merge.try_into()?;
+    // let lf_itvs_all = df_itvs.clone().lazy();
+    let df_itvs = df_itvs
+        .lazy()
+        .filter(col("status").neq(lit("good")))
+        .collect()?;
 
-fn merge_intervals(df_itvs: DataFrame, bp_merge: u64, bp_filter: u64) -> DataFrame {
-    // TODO: Need to merge by interval type.
-    // TODO: Need to convert completely contained intervals to correct type.
+    // Group by interval type.
+    let itvs: HashMap<&str, Vec<Interval<(&str, u8)>>> = multizip((
+        df_itvs.column("st")?.u64()?.iter().flatten(),
+        df_itvs.column("end")?.u64()?.iter().flatten(),
+        df_itvs.column("cov")?.u8()?.iter().flatten(),
+        df_itvs.column("status")?.str()?.iter().flatten(),
+    ))
+    .fold(HashMap::default(), |mut acc, (st, end, cov, status)| {
+        // Add base bp merge.
+        let itv = Interval::new(st as i32 - bp_merge, end as i32 + bp_merge, (status, cov));
+        acc.entry(status)
+            .and_modify(|a| a.push(itv))
+            .or_insert_with(|| vec![itv]);
+        acc
+    });
+    // Then merge overlapping intervals by status type.
+    let merged_itvs = itvs.into_iter()
+    .fold(Vec::new(), |mut acc, (grp, grp_itvs)| {
+        acc.extend(merge_overlapping_intervals(
+            grp_itvs.into_iter(),
+            |itv_1,itv_2| (itv_1.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2),
+            |itv: Interval<(&str, u8)>| {
+                Interval::new(
+                    itv.first + bp_merge,
+                    itv.last - bp_merge,
+                    (grp, itv.metadata.1),
+                )
+            },
+        ));
+        acc
+    });
 
-    unimplemented!()
+    // Merge overlapping intervals OVER status type choosing largest misassembly type.
+    let final_merged_itvs = merge_overlapping_intervals(
+        merged_itvs.into_iter(),
+        |itv_1, itv_2| {
+            let largest_itv = std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| {
+                itv_1.len().cmp(&itv_2.len())
+            });
+            
+            (largest_itv.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2)
+        },
+        |itv| itv,
+    );
+    let mut sts = vec![];
+    let mut ends = vec![];
+    let mut covs = vec![];
+    let mut statuses = vec![];
+    for itv in final_merged_itvs {
+        sts.push(itv.first);
+        ends.push(itv.last);
+        covs.push(itv.metadata.1);
+        statuses.push(itv.metadata.0);
+    }
+
+    Ok(DataFrame::new(vec![
+        Column::new("st".into(), sts),
+        Column::new("end".into(), ends),
+        Column::new("cov".into(), covs),
+        Column::new("status".into(), statuses),
+    ])?
+    .lazy()
+    // Reset intervals smaller than filter
+    .with_column(
+        when((col("end") - col("st")).gt_eq(lit(bp_filter)))
+            .then(col("status"))
+            .otherwise(lit("good"))
+            .alias("status"),
+    )
+    .sort(["st"], Default::default())
+    .collect()?)
 }
 
 /// Classify misasemblies from alignment read coverage.
@@ -57,15 +138,14 @@ pub fn classify_misassemblies(
     bamfile: impl AsRef<Path>,
     itv: Interval<String>,
     cov_bed: Option<impl AsRef<Path>>,
-    plot: Option<impl AsRef<Path>>,
     cfg: Config,
 ) -> eyre::Result<(String, DataFrame)> {
     let ctg = itv.metadata.clone();
-    let (st, end) = (itv.st, itv.end);
+    let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
     let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(&bamfile)?;
     let pileup = pileup(&mut bam, itv)?;
 
-    let df_raw_pileup = merge_pileup_info(pileup, st.get(), end.get())?;
+    let df_raw_pileup = merge_pileup_info(pileup, st, end)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
     // This is never filtered so safe to left join without removing data.
@@ -74,14 +154,14 @@ pub fn classify_misassemblies(
         cfg.first.window_size,
         cfg.first.n_zscores,
         None,
-        true
+        true,
     )?;
     let lf_second_peaks = find_peaks(
         df_raw_pileup.select(["pos", "second"])?,
         cfg.second.window_size,
         cfg.second.n_zscores,
         Some(cfg.second.min_perc),
-        false
+        false,
     )?;
 
     let mut df_pileup = lf_first_peaks
@@ -140,7 +220,7 @@ pub fn classify_misassemblies(
                 col("first")
                     .lt_eq(col("first").median() / lit(2))
                     // Needs to scale with coverage.
-                    .and(col("first_all_zscore").lt(lit(-2.5)))
+                    .and(col("first_all_zscore").lt(lit(-3.4)))
                     .and(col("mapq").eq(lit(0))),
             )
             .then(lit("false_dupe"))
@@ -166,28 +246,35 @@ pub fn classify_misassemblies(
 
     // Output raw coverage.
     if let Some(cov_bed) = cov_bed {
+        log::info!("Saving output coverage bed in {ctg}:{st}-{end}.");
         write_tsv(&mut df_pileup, Some(cov_bed))?;
     }
 
     // Construct intervals.
     // Store [st,end,type,cov]
-    let df_itvs = df_pileup
+    let mut df_itvs = df_pileup
         .select(["pos", "first", "second", "status"])?
         .lazy()
         .with_column(col("status").rle_id().alias("group"))
         .group_by([col("group")])
         .agg([
             col("pos").min().alias("st"),
-            col("pos").max().alias("end"),
-            (col("first") + col("second")).mean().alias("cov"),
+            col("pos").max().alias("end") + lit(1),
+            (col("first") + col("second"))
+                .mean()
+                .alias("cov")
+                .cast(DataType::UInt8),
             col("status").first(),
-        ]).collect()?;
+        ])
+        .drop([col("group")])
+        .collect()?;
 
     let bp_filter: u64 = cfg.general.min_bp.try_into()?;
     let bp_merge: u64 = cfg.general.bp_merge.try_into()?;
 
     // Then merge and filter. Need to use coitrees.
-    let df_itvs_final = merge_intervals(df_itvs, bp_merge, bp_filter);
+    log::info!("Merging intervals in {ctg}:{st}-{end}.");
+    let df_itvs_final = merge_misassemblies(df_itvs, bp_merge, bp_filter)?;
 
     let (n_misassemblies, _) = df_itvs_final
         .select(["status"])?
@@ -197,16 +284,5 @@ pub fn classify_misassemblies(
         .shape();
 
     log::info!("Detected {n_misassemblies} misassemblies for {ctg}:{st}-{end}.",);
-    if let Some(plot_fname) = plot {
-        log::info!("Plotting misassemblies for {ctg}:{st}-{end}.");
-        draw_nucfreq(
-            plot_fname,
-            cfg.general.plot_dim,
-            &ctg,
-            &df_pileup,
-            &df_itvs_final,
-        )?;
-    }
-    // Add ctg.
     Ok((ctg, df_itvs_final))
 }

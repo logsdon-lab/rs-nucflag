@@ -8,7 +8,7 @@ pub fn find_peaks(
     window_size: usize,
     n_zscore: f32,
     min_perc: Option<f32>,
-    global_zscore: bool
+    global_zscore: bool,
 ) -> eyre::Result<LazyFrame> {
     assert_eq!(
         df_pileup.get_column_names().len(),
@@ -101,12 +101,10 @@ pub fn find_peaks(
         lf_pileup
     };
     // Go back to u64
-    Ok(lf_pileup
-        .cast(
-            PlHashMap::from_iter([(colname.as_str(), DataType::UInt64)]),
-            true,
-        )
-    )
+    Ok(lf_pileup.cast(
+        PlHashMap::from_iter([(colname.as_str(), DataType::UInt64)]),
+        true,
+    ))
 }
 
 #[cfg(test)]

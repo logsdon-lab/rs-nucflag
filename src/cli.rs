@@ -23,10 +23,6 @@ pub struct Cli {
     #[arg(short = 'o', long)]
     pub summary: Option<PathBuf>,
 
-    // Output plot directory.
-    #[arg(short = 'p', long = "plot-dir")]
-    pub plot_dir: Option<PathBuf>,
-
     /// Output coverage directory. Generates gzipped per-base coverage TSV files.
     #[arg(long)]
     pub cov_dir: Option<PathBuf>,

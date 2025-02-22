@@ -10,24 +10,22 @@ use crate::{
     io::{read_bed, read_cfg},
 };
 use clap::Parser;
+use coitrees::Interval;
 use itertools::{multizip, Itertools};
 use misassembly::MisassemblyType;
 use noodles::bam::{self};
-use plotters::style::RGBAColor;
-
 use polars::prelude::*;
 use rayon::{prelude::*, ThreadPoolBuilder};
-use utils::Interval;
 
 mod classify;
 mod cli;
 mod config;
-mod draw;
+mod intervals;
+// mod draw;
 mod io;
 mod misassembly;
 mod peak;
 mod pileup;
-mod utils;
 
 // https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
 fn main() -> eyre::Result<()> {
@@ -45,7 +43,11 @@ fn main() -> eyre::Result<()> {
     ThreadPoolBuilder::new().num_threads(cli.threads);
 
     let bed = read_bed(bedfile, |name, st, end, _| {
-        Interval::new(st, end, name.to_owned()).unwrap()
+        Interval::new(
+            st.try_into().unwrap(),
+            end.try_into().unwrap(),
+            name.to_owned(),
+        )
     })?;
 
     let ctg_itvs: Vec<Interval<String>> = if bed.is_empty() {
@@ -59,7 +61,7 @@ fn main() -> eyre::Result<()> {
             .map(|(ctg, ref_seq)| {
                 let ctg_name: String = ctg.clone().try_into().unwrap();
                 let length = ref_seq.length().get().try_into().unwrap();
-                Interval::new(1, length, ctg_name.clone()).unwrap()
+                Interval::new(1, length, ctg_name.clone())
             })
             .collect()
     } else {
@@ -76,14 +78,8 @@ fn main() -> eyre::Result<()> {
                 cov_fname.set_extension("cov");
                 cov_fname
             });
-            let plot_fname = cli.plot_dir.as_ref().map(|plot_dir| {
-                let mut plot_fname = plot_dir.join(ctg);
-                plot_fname.set_extension("png");
-                plot_fname
-            });
             // Open the BAM file in read-only per thread.
-            classify_misassemblies(bamfile.clone(), itv, cov_fname, plot_fname, cfg.clone())
-                .unwrap()
+            classify_misassemblies(bamfile.clone(), itv, cov_fname, cfg.clone()).unwrap()
         })
         .collect();
 
@@ -105,17 +101,16 @@ fn main() -> eyre::Result<()> {
             .collect_tuple()
             .unwrap();
         for (st, end, cov, status) in multizip((
-            sts.u64()?.iter().flatten(),
-            ends.u64()?.iter().flatten(),
-            covs.f64()?.iter().flatten(),
+            sts.i32()?.iter().flatten(),
+            ends.i32()?.iter().flatten(),
+            covs.u8()?.iter().flatten(),
             statuses.str()?.iter().flatten(),
         )) {
-            let item_rgb = RGBAColor::from(MisassemblyType::from_str(status)?);
+            let item_rgb = MisassemblyType::from_str(status)?.item_rgb();
             // Write BED9
             writeln!(
                 output_fh,
-                "{ctg}\t{st}\t{end}\t{status:?}\t{cov}\t+\t{st}\t{end}\t{},{},{}",
-                item_rgb.0, item_rgb.1, item_rgb.2
+                "{ctg}\t{st}\t{end}\t{status:?}\t{cov}\t+\t{st}\t{end}\t{item_rgb}",
             )?;
         }
     }

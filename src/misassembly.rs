@@ -1,10 +1,5 @@
 use std::{convert::Infallible, str::FromStr};
 
-use plotters::style::{
-    full_palette::{ORANGE, PURPLE},
-    Color, RGBAColor, BLUE, GREEN, TRANSPARENT, YELLOW,
-};
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MisassemblyType {
     CollapseOther,
@@ -15,20 +10,16 @@ pub enum MisassemblyType {
     Null,
 }
 
-impl From<MisassemblyType> for RGBAColor {
-    fn from(value: MisassemblyType) -> Self {
-        match value {
-            MisassemblyType::CollapseOther => YELLOW,
-            MisassemblyType::CollapseVar => BLUE,
-            MisassemblyType::Collapse => GREEN,
-            MisassemblyType::Misjoin => ORANGE,
-            MisassemblyType::FalseDupe => PURPLE,
-            MisassemblyType::Null => {
-                return TRANSPARENT;
-            }
+impl MisassemblyType {
+    pub fn item_rgb(&self) -> &'static str {
+        match self {
+            MisassemblyType::CollapseOther => "yellow",
+            MisassemblyType::CollapseVar => "blue",
+            MisassemblyType::Collapse => "green",
+            MisassemblyType::Misjoin => "orange",
+            MisassemblyType::FalseDupe => "purple",
+            MisassemblyType::Null => "null",
         }
-        .to_rgba()
-        .mix(0.5)
     }
 }
 

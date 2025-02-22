@@ -13,8 +13,6 @@ pub struct Config {
 #[derive(Deserialize, Debug, Clone)]
 /// Config for generated plots.
 pub struct GeneralConfig {
-    /// Dimensions of individual plot.
-    pub plot_dim: (u32, u32),
     /// Number of bases to merge intervals.
     pub bp_merge: usize,
     /// Minimum misassembly size.
@@ -24,7 +22,6 @@ pub struct GeneralConfig {
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
-            plot_dim: (4000, 750),
             bp_merge: 5000,
             min_bp: 1,
         }
