@@ -1,17 +1,14 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
-};
+use std::{collections::HashMap, path::Path};
 
 use crate::{
     config::Config,
     intervals::merge_overlapping_intervals,
-    io::write_tsv,
+    io::{write_itvs, write_tsv},
     peak::find_peaks,
     pileup::{pileup, PileupInfo},
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
-use itertools::multizip;
+use itertools::{multizip, Itertools};
 use noodles::bam::{self};
 use polars::prelude::*;
 
@@ -43,37 +40,32 @@ fn merge_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result
 
 fn merge_misassemblies(
     df_itvs: DataFrame,
-    bp_merge: u64,
-    bp_filter: u64,
+    bp_merge: i32,
+    bp_filter: i32,
+    merge_across_type: bool,
 ) -> eyre::Result<DataFrame> {
-    let bp_merge: i32 = bp_merge.try_into()?;
-    // let lf_itvs_all = df_itvs.clone().lazy();
-    let df_itvs = df_itvs
+    let df_itvs_all = df_itvs.clone();
+    let mut df_misasm_itvs = df_itvs
         .lazy()
         .filter(col("status").neq(lit("good")))
         .collect()?;
 
     // Group by interval type.
-    let itvs: HashMap<&str, Vec<Interval<(&str, u8)>>> = multizip((
-        df_itvs.column("st")?.u64()?.iter().flatten(),
-        df_itvs.column("end")?.u64()?.iter().flatten(),
-        df_itvs.column("cov")?.u8()?.iter().flatten(),
-        df_itvs.column("status")?.str()?.iter().flatten(),
+    let merged_misasm_itvs: Vec<Interval<(&str, u8)>> = multizip((
+        df_misasm_itvs.column("st")?.u64()?.iter().flatten(),
+        df_misasm_itvs.column("end")?.u64()?.iter().flatten(),
+        df_misasm_itvs.column("cov")?.u8()?.iter().flatten(),
+        df_misasm_itvs.column("status")?.str()?.iter().flatten(),
     ))
-    .fold(HashMap::default(), |mut acc, (st, end, cov, status)| {
+    .chunk_by(|a| a.3)
+    .into_iter()
+    .fold(Vec::default(), |mut acc, (grp, grps)| {
         // Add base bp merge.
-        let itv = Interval::new(st as i32 - bp_merge, end as i32 + bp_merge, (status, cov));
-        acc.entry(status)
-            .and_modify(|a| a.push(itv))
-            .or_insert_with(|| vec![itv]);
-        acc
-    });
-    // Then merge overlapping intervals by status type.
-    let merged_itvs = itvs.into_iter()
-    .fold(Vec::new(), |mut acc, (grp, grp_itvs)| {
         acc.extend(merge_overlapping_intervals(
-            grp_itvs.into_iter(),
-            |itv_1,itv_2| (itv_1.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2),
+            grps.into_iter().map(|(st, end, cov, status)| {
+                Interval::new(st as i32 - bp_merge, end as i32 + bp_merge, (status, cov))
+            }),
+            |itv_1, itv_2| (itv_1.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2),
             |itv: Interval<(&str, u8)>| {
                 Interval::new(
                     itv.first + bp_merge,
@@ -86,44 +78,74 @@ fn merge_misassemblies(
     });
 
     // Merge overlapping intervals OVER status type choosing largest misassembly type.
-    let final_merged_itvs = merge_overlapping_intervals(
-        merged_itvs.into_iter(),
-        |itv_1, itv_2| {
-            let largest_itv = std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| {
-                itv_1.len().cmp(&itv_2.len())
-            });
-            
-            (largest_itv.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2)
-        },
-        |itv| itv,
-    );
-    let mut sts = vec![];
-    let mut ends = vec![];
-    let mut covs = vec![];
-    let mut statuses = vec![];
-    for itv in final_merged_itvs {
-        sts.push(itv.first);
-        ends.push(itv.last);
-        covs.push(itv.metadata.1);
-        statuses.push(itv.metadata.0);
-    }
+    let final_misasm_itvs = if merge_across_type {
+        merge_overlapping_intervals(
+            merged_misasm_itvs.into_iter(),
+            |itv_1, itv_2| {
+                let largest_itv =
+                    std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| itv_1.len().cmp(&itv_2.len()));
 
-    Ok(DataFrame::new(vec![
-        Column::new("st".into(), sts),
-        Column::new("end".into(), ends),
-        Column::new("cov".into(), covs),
-        Column::new("status".into(), statuses),
-    ])?
-    .lazy()
-    // Reset intervals smaller than filter
-    .with_column(
-        when((col("end") - col("st")).gt_eq(lit(bp_filter)))
-            .then(col("status"))
-            .otherwise(lit("good"))
-            .alias("status"),
-    )
-    .sort(["st"], Default::default())
-    .collect()?)
+                (
+                    largest_itv.metadata.0,
+                    (itv_1.metadata.1 + itv_2.metadata.1) / 2,
+                )
+            },
+            |itv| itv,
+        )
+    } else {
+        merged_misasm_itvs
+    };
+
+    // Find intervals corresponding to misassemblies.
+    let all_itvs: Vec<Interval<(&str, u8)>> = multizip((
+        df_itvs_all.column("st")?.u64()?.iter().flatten(),
+        df_itvs_all.column("end")?.u64()?.iter().flatten(),
+        df_itvs_all.column("cov")?.u8()?.iter().flatten(),
+        df_itvs_all.column("status")?.str()?.iter().flatten(),
+    ))
+    .map(|(st, end, cov, status)| Interval::new(st as i32, end as i32, (status, cov)))
+    .into_iter().collect();
+
+    let all_itree: COITree<(&str, u8), usize> = COITree::new(&all_itvs);
+
+    let mut new_itvs = vec![];
+    for itv in final_misasm_itvs {
+        all_itree.query(itv.first, itv.last, |ovl_itv| {
+            if (itv.first == ovl_itv.first) || (itv.last == ovl_itv.last) {
+                return;
+            }
+            // Fully contained interval. Change.
+            if itv.first <= ovl_itv.first && itv.last >= ovl_itv.last {
+                new_itvs.push(Interval::new(ovl_itv.first, ovl_itv.last, itv.metadata));
+            }
+        });
+    };
+
+    let lf = DataFrame::empty().lazy();
+    // let lf = lf_itvs_all
+    //     .with_column(col("status").map(function, output_type))
+    //     .with_column(any_horizontal(&exprs_misasm_itvs)?.alias("status"))
+    //     // Reset intervals smaller than filter
+    //     .with_column(
+    //         when((col("end") - col("st")).gt_eq(lit(bp_filter)))
+    //             .then(col("status"))
+    //             .otherwise(lit("good"))
+    //             .alias("status"),
+    //     )
+    //     .with_column(col("status").rle_id().alias("group"));
+
+
+    Ok(lf
+        .group_by(["group"])
+        .agg([
+            col("st").min(),
+            col("end").max(),
+            col("cov").median(),
+            col("status").first(),
+        ])
+        .sort(["st"], Default::default())
+        .select([col("st"), col("end"), col("cov"), col("status")])
+        .collect()?)
 }
 
 /// Classify misasemblies from alignment read coverage.
@@ -177,15 +199,15 @@ pub fn classify_misassemblies(
             [col("pos")],
             JoinArgs::new(JoinType::Left),
         )
-        // Fill nulls from join.
-        .with_column(col("second").fill_null(lit(0)))
-        .with_columns([
-            col("second_peak").fill_null(lit("null")),
+        .with_column(
             // Calculate het ratio.
             (col("second").cast(DataType::Float32)
-                / (col("first") + col("second")).cast(DataType::Float32))
+                / (col("first").cast(DataType::Float32) + col("second").cast(DataType::Float32)))
             .alias("het_ratio"),
-        ])
+        );
+    // write_tsv(&mut df_pileup.clone().collect()?, Some("test.bed"))?;
+
+    let mut df_pileup = df_pileup
         .with_columns([
             // misjoin
             // Regions with either:
@@ -226,22 +248,20 @@ pub fn classify_misassemblies(
             .then(lit("false_dupe"))
             // collapse_other
             // Regions with higher than expected het ratio.
-            .when(
-                col("het_ratio").gt(lit(cfg.second.thr_het_ratio)), // .and(col("second_peak").eq(lit("high")))
-            )
+            .when(col("het_ratio").gt_eq(lit(cfg.second.thr_het_ratio)))
             .then(lit("collapse_other"))
             .otherwise(lit("good"))
             .alias("status"),
         ])
-        .select([
-            col("pos"),
-            col("first"),
-            col("second"),
-            col("first_mean"),
-            col("second_mean"),
-            col("mapq"),
-            col("status"),
-        ])
+        // .select([
+        //     col("pos"),
+        //     col("first"),
+        //     col("second"),
+        //     col("first_mean"),
+        //     col("second_mean"),
+        //     col("mapq"),
+        //     col("status"),
+        // ])
         .collect()?;
 
     // Output raw coverage.
@@ -252,7 +272,7 @@ pub fn classify_misassemblies(
 
     // Construct intervals.
     // Store [st,end,type,cov]
-    let mut df_itvs = df_pileup
+    let df_itvs = df_pileup
         .select(["pos", "first", "second", "status"])?
         .lazy()
         .with_column(col("status").rle_id().alias("group"))
@@ -269,12 +289,13 @@ pub fn classify_misassemblies(
         .drop([col("group")])
         .collect()?;
 
-    let bp_filter: u64 = cfg.general.min_bp.try_into()?;
-    let bp_merge: u64 = cfg.general.bp_merge.try_into()?;
+    let bp_filter: i32 = cfg.general.min_bp.try_into()?;
+    let bp_merge: i32 = cfg.general.bp_merge.try_into()?;
 
-    // Then merge and filter. Need to use coitrees.
+    // Then merge and filter.
     log::info!("Merging intervals in {ctg}:{st}-{end}.");
-    let df_itvs_final = merge_misassemblies(df_itvs, bp_merge, bp_filter)?;
+    let df_itvs_final =
+        merge_misassemblies(df_itvs, bp_merge, bp_filter, cfg.general.merge_across_type)?;
 
     let (n_misassemblies, _) = df_itvs_final
         .select(["status"])?

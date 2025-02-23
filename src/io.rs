@@ -1,10 +1,11 @@
 use std::{
     fmt::Debug,
     fs::File,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
 };
 
+use coitrees::GenericInterval;
 use itertools::Itertools;
 use polars::prelude::*;
 
@@ -13,14 +14,29 @@ use crate::{config::Config, Interval};
 /// Write TSV file to file or stdout.
 pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Result<()> {
     let mut file: Box<dyn Write> = if let Some(path) = path {
-        Box::new(File::create(path)?)
+        Box::new(BufWriter::new(File::create(path)?))
     } else {
-        Box::new(std::io::stdout())
+        Box::new(BufWriter::new(std::io::stdout()))
     };
     CsvWriter::new(&mut file)
         .include_header(true)
         .with_separator(b'\t')
         .finish(df)?;
+    Ok(())
+}
+
+pub fn write_itvs<'a, T: Debug + Clone + 'a>(
+    itvs: impl Iterator<Item = &'a Interval<T>>,
+    path: Option<impl AsRef<Path>>,
+) -> eyre::Result<()> {
+    let mut file: Box<dyn Write> = if let Some(path) = path {
+        Box::new(BufWriter::new(File::create(path)?))
+    } else {
+        Box::new(BufWriter::new(std::io::stdout()))
+    };
+    for itv in itvs {
+        writeln!(&mut file, "{}\t{}\t{:?}", itv.first, itv.last, itv.metadata)?;
+    }
     Ok(())
 }
 

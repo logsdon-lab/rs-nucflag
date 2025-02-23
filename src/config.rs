@@ -17,6 +17,8 @@ pub struct GeneralConfig {
     pub bp_merge: usize,
     /// Minimum misassembly size.
     pub min_bp: usize,
+    /// Merge across misassembly type.
+    pub merge_across_type: bool,
 }
 
 impl Default for GeneralConfig {
@@ -24,6 +26,7 @@ impl Default for GeneralConfig {
         Self {
             bp_merge: 5000,
             min_bp: 1,
+            merge_across_type: false,
         }
     }
 }

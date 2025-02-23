@@ -10,7 +10,7 @@ cargo install ...
 
 ## Usage
 ```bash
-nucflag --bam test/standard/aln.bam --bed test/standard/region.bed --plot-dir . --config nucflag.toml
+cargo run -- --bam test/standard/aln.bam --bed test/standard/region.bed --config nucflag.toml
 ```
 
 

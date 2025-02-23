@@ -101,9 +101,9 @@ fn main() -> eyre::Result<()> {
             .collect_tuple()
             .unwrap();
         for (st, end, cov, status) in multizip((
-            sts.i32()?.iter().flatten(),
-            ends.i32()?.iter().flatten(),
-            covs.u8()?.iter().flatten(),
+            sts.u64()?.iter().flatten(),
+            ends.u64()?.iter().flatten(),
+            covs.f64()?.iter().flatten(),
             statuses.str()?.iter().flatten(),
         )) {
             let item_rgb = MisassemblyType::from_str(status)?.item_rgb();

@@ -13,14 +13,14 @@ pub struct Cli {
     #[arg(short = 'b', long)]
     pub bed: Option<PathBuf>,
 
-    /// Misassembly BED9 file.
+    /// Misassembly BED9 file. If not provided, outputs to stdout.
     /// Format: contig,st,end,misassembly,cov,+,st,end,item_rgb
     #[arg(short = 'o', long)]
     pub misassemblies: Option<PathBuf>,
 
     /// Status BED file.
     /// Format: contig,st,end,status,{perc_good, perc_collapse, ...}
-    #[arg(short = 'o', long)]
+    #[arg(short = 's', long)]
     pub summary: Option<PathBuf>,
 
     /// Output coverage directory. Generates gzipped per-base coverage TSV files.

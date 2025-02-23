@@ -16,12 +16,6 @@ pub fn find_peaks(
         "Only two columns expected (pos, data)."
     );
 
-    let window_opts = RollingOptionsFixedWindow {
-        window_size,
-        center: true,
-        ..Default::default()
-    };
-
     let Some(colname) = df_pileup
         .get_column_names_str()
         .into_iter()
@@ -46,19 +40,9 @@ pub fn find_peaks(
     let global_zscore_col = format!("{colname}_all_zscore");
 
     let lf_pileup = lf_pileup
-        .with_column(
-            col(&colname)
-                .rolling_mean(window_opts.clone())
-                .fill_null(col(&colname).mean())
-                .alias(&mean_col),
-        )
-        .with_column(
-            col(&colname)
-                .rolling_std(window_opts.clone())
-                .fill_null(col(&colname).std(1))
-                .alias(&stdev_col),
-        )
-        // Calculate windowed zscore.
+        .with_column(col(&colname).mean().alias(&mean_col))
+        .with_column(col(&colname).std(1).alias(&stdev_col))
+        // Calculate zscore.
         .with_column(((col(&colname) - col(&mean_col)) / col(&stdev_col)).alias(&zscore_col))
         .with_column(
             when(col(&zscore_col).abs().gt(lit(n_zscore)))
@@ -106,6 +90,3 @@ pub fn find_peaks(
         true,
     ))
 }
-
-#[cfg(test)]
-mod test {}
