@@ -78,7 +78,7 @@ fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, Kind
 
 pub fn pileup(
     bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
-    itv: Interval<String>,
+    itv: &Interval<String>,
 ) -> eyre::Result<Vec<PileupInfo>> {
     let st: usize = itv.first.try_into()?;
     let end: usize = itv.last.try_into()?;

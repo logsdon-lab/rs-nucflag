@@ -1,12 +1,19 @@
 [package]
-name = "py"
+name = "rs_nucflag"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "py"
+name = "rs_nucflag"
 crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = "0.23.3"
+rayon = "1.10.0"
+itertools = "0.14.0"
+coitrees = "0.4.0"
+polars = "0.46.0"
+noodles = { version = "0.91.0", features = ["bam"] }
+nucflag = { path = "../core"}
+pyo3-polars = "0.20.0"

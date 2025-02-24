@@ -1,10 +1,10 @@
 [package]
-name = "rs-nucflag"
+name = "nucflag"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "rs-nucflag"
+name = "nucflag"
 path = "src/lib.rs"
 
 [dependencies]
@@ -15,7 +15,6 @@ itertools = "0.14.0"
 log = "0.4.25"
 noodles = { version = "0.91.0", features = ["bam", "bgzf", "core", "sam"] }
 polars = { version = "0.46.0", features = ["abs", "dtype-u8", "lazy", "rank", "rle", "rolling_window", "round_series"] }
-rayon = "1.10.0"
 serde = "1.0.217"
 simple_logger = { version = "5.0.0", features = ["stderr"] }
 toml = "0.8.20"

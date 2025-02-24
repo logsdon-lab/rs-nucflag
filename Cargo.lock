@@ -1103,6 +1103,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nucflag"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "coitrees",
+ "eyre",
+ "itertools",
+ "log",
+ "noodles",
+ "polars",
+ "serde",
+ "simple_logger",
+ "toml",
+]
+
+[[package]]
 name = "num-conv"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1358,7 +1374,7 @@ dependencies = [
  "rayon",
  "regex",
  "strum_macros",
- "thiserror",
+ "thiserror 2.0.11",
  "version_check",
  "xxhash-rust",
 ]
@@ -1372,7 +1388,7 @@ dependencies = [
  "polars-arrow-format",
  "regex",
  "simdutf8",
- "thiserror",
+ "thiserror 2.0.11",
 ]
 
 [[package]]
@@ -1772,13 +1788,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "py"
-version = "0.1.0"
-dependencies = [
- "pyo3",
-]
-
-[[package]]
 name = "pyo3"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1839,6 +1848,21 @@ dependencies = [
  "pyo3-build-config",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "pyo3-polars"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e7db078e647fbd863d7605d13ef1553c06dd84ba9559f76512d3ca63d5fff20"
+dependencies = [
+ "libc",
+ "once_cell",
+ "polars",
+ "polars-arrow",
+ "polars-core",
+ "pyo3",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1978,20 +2002,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
-name = "rs-nucflag"
+name = "rs_nucflag"
 version = "0.1.0"
 dependencies = [
- "clap",
  "coitrees",
- "eyre",
  "itertools",
- "log",
  "noodles",
+ "nucflag",
  "polars",
+ "pyo3",
+ "pyo3-polars",
  "rayon",
- "serde",
- "simple_logger",
- "toml",
 ]
 
 [[package]]
@@ -2224,11 +2245,31 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
 version = "2.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d452f284b73e6d76dd36758a0c8684b1d5be31f92b89d07fd5822175732206fc"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 2.0.11",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

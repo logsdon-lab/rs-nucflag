@@ -3,7 +3,6 @@ use std::path::Path;
 use crate::{
     config::Config,
     intervals::merge_overlapping_intervals,
-    io::write_tsv,
     peak::find_peaks,
     pileup::{pileup, PileupInfo},
 };
@@ -143,20 +142,29 @@ fn merge_misassemblies(
         .map_err(Into::into)
 }
 
+
+#[derive(Debug)]
+pub struct NucFlagResult {
+    /// All called regions.
+    pub regions: DataFrame,
+    /// Pileup of regions.
+    pub cov: DataFrame 
+}
+
 /// Classify misasemblies from alignment read coverage.
 ///
 /// # Arguments
 /// * `bamfile`: Input BAM file path. Should be indexed and filtered to only primary alignments (?).  
 /// * `itv`: Interval to check.
-/// * `output_bed`: Output BED file with misassemblies.
-/// * `cov_dir`: Output directory to write .
-/// * `plot_dir`: Output BED file with misassemblies.
+/// * `cfg`: Output BED file with misassemblies.
+/// 
+/// # Returns
+/// * `NucFlagResult`
 pub fn classify_misassemblies(
     bamfile: impl AsRef<Path>,
-    itv: Interval<String>,
-    cov_bed: Option<impl AsRef<Path>>,
+    itv: &Interval<String>,
     cfg: Config,
-) -> eyre::Result<(String, DataFrame)> {
+) -> eyre::Result<NucFlagResult> {
     let ctg = itv.metadata.clone();
     let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
     let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(&bamfile)?;
@@ -199,7 +207,7 @@ pub fn classify_misassemblies(
             .alias("het_ratio"),
         );
 
-    let mut df_pileup = df_pileup
+    let df_pileup = df_pileup
         .with_columns([
             // misjoin
             // Regions with either:
@@ -256,12 +264,6 @@ pub fn classify_misassemblies(
         ])
         .collect()?;
 
-    // Output raw coverage.
-    if let Some(cov_bed) = cov_bed {
-        log::info!("Saving output coverage bed in {ctg}:{st}-{end}.");
-        write_tsv(&mut df_pileup, Some(cov_bed))?;
-    }
-
     // Construct intervals.
     // Store [st,end,type,cov]
     let df_itvs = df_pileup
@@ -287,7 +289,7 @@ pub fn classify_misassemblies(
     // Then merge and filter.
     log::info!("Merging intervals in {ctg}:{st}-{end}.");
     let df_itvs_final =
-        merge_misassemblies(df_itvs, bp_merge, bp_filter, cfg.general.merge_across_type)?;
+        merge_misassemblies(df_itvs, bp_merge, bp_filter, cfg.general.merge_across_type)?.lazy().with_column(lit(ctg.clone()).alias("ctg")).collect()?;
 
     let (n_misassemblies, _) = df_itvs_final
         .select(["status"])?
@@ -297,5 +299,5 @@ pub fn classify_misassemblies(
         .shape();
 
     log::info!("Detected {n_misassemblies} misassemblies for {ctg}:{st}-{end}.",);
-    Ok((ctg, df_itvs_final))
+    Ok(NucFlagResult { cov: df_pileup, regions: df_itvs_final})
 }

@@ -7,6 +7,6 @@ merge_across_type = false
 n_zscores = 4
 
 [second]
-n_zscores = 4
+n_zscores = 3.4
 min_perc = 0.05
-thr_het_ratio = 0.2
+thr_het_ratio = 0.15
