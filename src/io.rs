@@ -5,7 +5,6 @@ use std::{
     path::Path,
 };
 
-use coitrees::GenericInterval;
 use itertools::Itertools;
 use polars::prelude::*;
 
@@ -25,6 +24,7 @@ pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Re
     Ok(())
 }
 
+#[allow(unused)]
 pub fn write_itvs<'a, T: Debug + Clone + 'a>(
     itvs: impl Iterator<Item = &'a Interval<T>>,
     path: Option<impl AsRef<Path>>,

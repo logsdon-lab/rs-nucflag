@@ -5,7 +5,6 @@ use polars::prelude::*;
 // Remove influence parameter.
 pub fn find_peaks(
     df_pileup: DataFrame,
-    window_size: usize,
     n_zscore: f32,
     min_perc: Option<f32>,
     global_zscore: bool,

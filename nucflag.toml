@@ -5,10 +5,8 @@ merge_across_type = false
 
 [first]
 n_zscores = 4
-window_size = 1_000_000
 
 [second]
 n_zscores = 4
-window_size = 1_000_000
 min_perc = 0.05
 thr_het_ratio = 0.2

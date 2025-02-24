@@ -1,13 +1,13 @@
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 use crate::{
     config::Config,
     intervals::merge_overlapping_intervals,
-    io::{write_itvs, write_tsv},
+    io::write_tsv,
     peak::find_peaks,
     pileup::{pileup, PileupInfo},
 };
-use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
+use coitrees::{GenericInterval, Interval};
 use itertools::{multizip, Itertools};
 use noodles::bam::{self};
 use polars::prelude::*;
@@ -44,8 +44,8 @@ fn merge_misassemblies(
     bp_filter: i32,
     merge_across_type: bool,
 ) -> eyre::Result<DataFrame> {
-    let df_itvs_all = df_itvs.clone();
-    let mut df_misasm_itvs = df_itvs
+    let mut lf_itvs_all = df_itvs.clone().lazy();
+    let df_misasm_itvs = df_itvs
         .lazy()
         .filter(col("status").neq(lit("good")))
         .collect()?;
@@ -65,6 +65,7 @@ fn merge_misassemblies(
             grps.into_iter().map(|(st, end, cov, status)| {
                 Interval::new(st as i32 - bp_merge, end as i32 + bp_merge, (status, cov))
             }),
+            // Average coverage.
             |itv_1, itv_2| (itv_1.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2),
             |itv: Interval<(&str, u8)>| {
                 Interval::new(
@@ -96,46 +97,39 @@ fn merge_misassemblies(
         merged_misasm_itvs
     };
 
-    // Find intervals corresponding to misassemblies.
-    let all_itvs: Vec<Interval<(&str, u8)>> = multizip((
-        df_itvs_all.column("st")?.u64()?.iter().flatten(),
-        df_itvs_all.column("end")?.u64()?.iter().flatten(),
-        df_itvs_all.column("cov")?.u8()?.iter().flatten(),
-        df_itvs_all.column("status")?.str()?.iter().flatten(),
-    ))
-    .map(|(st, end, cov, status)| Interval::new(st as i32, end as i32, (status, cov)))
-    .into_iter().collect();
-
-    let all_itree: COITree<(&str, u8), usize> = COITree::new(&all_itvs);
-
-    let mut new_itvs = vec![];
+    // Replace intervals between good.
     for itv in final_misasm_itvs {
-        all_itree.query(itv.first, itv.last, |ovl_itv| {
-            if (itv.first == ovl_itv.first) || (itv.last == ovl_itv.last) {
-                return;
-            }
-            // Fully contained interval. Change.
-            if itv.first <= ovl_itv.first && itv.last >= ovl_itv.last {
-                new_itvs.push(Interval::new(ovl_itv.first, ovl_itv.last, itv.metadata));
-            }
-        });
-    };
+        lf_itvs_all = lf_itvs_all.with_column(
+            when(
+                col("st")
+                    .gt_eq(lit(itv.first))
+                    .and(col("end").lt_eq(itv.last)),
+            )
+            .then(lit(itv.metadata.0))
+            .otherwise(col("status"))
+            .alias("status"),
+        );
+    }
 
-    let lf = DataFrame::empty().lazy();
-    // let lf = lf_itvs_all
-    //     .with_column(col("status").map(function, output_type))
-    //     .with_column(any_horizontal(&exprs_misasm_itvs)?.alias("status"))
-    //     // Reset intervals smaller than filter
-    //     .with_column(
-    //         when((col("end") - col("st")).gt_eq(lit(bp_filter)))
-    //             .then(col("status"))
-    //             .otherwise(lit("good"))
-    //             .alias("status"),
-    //     )
-    //     .with_column(col("status").rle_id().alias("group"));
-
-
-    Ok(lf
+    lf_itvs_all
+        // First reduce interval groups to min/max.
+        .with_column(col("status").rle_id().alias("group"))
+        .group_by(["group"])
+        .agg([
+            col("st").min(),
+            col("end").max(),
+            col("cov").median(),
+            col("status").first(),
+        ])
+        // Reset intervals smaller than filter
+        .with_column(
+            when((col("end") - col("st")).gt_eq(lit(bp_filter)))
+                .then(col("status"))
+                .otherwise(lit("good"))
+                .alias("status"),
+        )
+        // Then reduce final interval groups to min/max.
+        .with_column(col("status").rle_id().alias("group"))
         .group_by(["group"])
         .agg([
             col("st").min(),
@@ -145,7 +139,8 @@ fn merge_misassemblies(
         ])
         .sort(["st"], Default::default())
         .select([col("st"), col("end"), col("cov"), col("status")])
-        .collect()?)
+        .collect()
+        .map_err(Into::into)
 }
 
 /// Classify misasemblies from alignment read coverage.
@@ -173,20 +168,18 @@ pub fn classify_misassemblies(
     // This is never filtered so safe to left join without removing data.
     let lf_first_peaks = find_peaks(
         df_raw_pileup.select(["pos", "first"])?,
-        cfg.first.window_size,
         cfg.first.n_zscores,
         None,
         true,
     )?;
     let lf_second_peaks = find_peaks(
         df_raw_pileup.select(["pos", "second"])?,
-        cfg.second.window_size,
         cfg.second.n_zscores,
         Some(cfg.second.min_perc),
         false,
     )?;
 
-    let mut df_pileup = lf_first_peaks
+    let df_pileup = lf_first_peaks
         .join(
             lf_second_peaks,
             [col("pos")],
@@ -205,7 +198,6 @@ pub fn classify_misassemblies(
                 / (col("first").cast(DataType::Float32) + col("second").cast(DataType::Float32)))
             .alias("het_ratio"),
         );
-    // write_tsv(&mut df_pileup.clone().collect()?, Some("test.bed"))?;
 
     let mut df_pileup = df_pileup
         .with_columns([
@@ -253,15 +245,15 @@ pub fn classify_misassemblies(
             .otherwise(lit("good"))
             .alias("status"),
         ])
-        // .select([
-        //     col("pos"),
-        //     col("first"),
-        //     col("second"),
-        //     col("first_mean"),
-        //     col("second_mean"),
-        //     col("mapq"),
-        //     col("status"),
-        // ])
+        .select([
+            col("pos"),
+            col("first"),
+            col("second"),
+            col("first_mean"),
+            col("second_mean"),
+            col("mapq"),
+            col("status"),
+        ])
         .collect()?;
 
     // Output raw coverage.

@@ -82,16 +82,24 @@ where
     merged.into_iter().map(data_finalizer).collect_vec()
 }
 
+#[allow(unused)]
 /// Subtract interval from st and end position
 pub fn subtract_interval<T: Clone>(itvs: &[Interval<T>], st: i32, end: i32) -> Vec<Interval<T>> {
     let mut sub_itvs = vec![];
 
     let itree: COITree<T, usize> = COITree::new(itvs);
-    let overlapping_itvs  = get_overlapping_intervals(&itree, st, end);
-    let mut sort_itvs = overlapping_itvs.into_iter().sorted_by(|a, b| a.first.cmp(&b.first)).peekable();
+    let overlapping_itvs = get_overlapping_intervals(&itree, st, end);
+    let mut sort_itvs = overlapping_itvs
+        .into_iter()
+        .sorted_by(|a, b| a.first.cmp(&b.first))
+        .peekable();
 
     if let Some(first_itv) = sort_itvs.peek().filter(|itv| itv.first > st) {
-        sub_itvs.push(Interval::new(st, first_itv.first, first_itv.metadata.clone()));
+        sub_itvs.push(Interval::new(
+            st,
+            first_itv.first,
+            first_itv.metadata.clone(),
+        ));
     }
 
     while let Some(itv) = sort_itvs.next() {
@@ -190,7 +198,7 @@ mod tests {
                 Interval::new(3, 4, ()),
                 Interval::new(5, 8, ()),
                 Interval::new(12, 12, ()),
-            ]
+            ],
         )
     }
 
@@ -209,7 +217,7 @@ mod tests {
                 Interval::new(3, 4, ()),
                 Interval::new(5, 8, ()),
                 Interval::new(12, 20, ()),
-            ]
+            ],
         )
     }
     #[test]
@@ -221,11 +229,6 @@ mod tests {
         ];
 
         let sub_itvs = subtract_interval(&itvs, 10, 20);
-        assert_itvs_equal(
-            &sub_itvs,
-            &[
-                Interval::new(12, 20, ()),
-            ]
-        )
+        assert_itvs_equal(&sub_itvs, &[Interval::new(12, 20, ())])
     }
 }

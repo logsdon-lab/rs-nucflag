@@ -37,16 +37,11 @@ pub struct FirstConfig {
     /// Number of z-scores above the mean to be considered a misassembly.
     /// Absolute value. For both collapses and misjoins
     pub n_zscores: f32,
-    /// Window size to calculate mean and stdev.
-    pub window_size: usize,
 }
 
 impl Default for FirstConfig {
     fn default() -> Self {
-        Self {
-            n_zscores: 3.4,
-            window_size: 500_000,
-        }
+        Self { n_zscores: 3.4 }
     }
 }
 
@@ -55,8 +50,6 @@ impl Default for FirstConfig {
 pub struct SecondConfig {
     /// Number of z-scores above the mean to flag.
     pub n_zscores: f32,
-    /// Window size.
-    pub window_size: usize,
     /// Threshold to remove background noise signal will have u=0.
     pub min_perc: f32,
     /// Ratio used to split hets from small collapses.
@@ -67,7 +60,6 @@ impl Default for SecondConfig {
     fn default() -> Self {
         Self {
             n_zscores: 3.4,
-            window_size: 500_000,
             min_perc: 0.25,
             thr_het_ratio: 0.2,
         }
