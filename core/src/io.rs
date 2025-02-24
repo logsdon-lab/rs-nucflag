@@ -5,10 +5,11 @@ use std::{
     path::Path,
 };
 
+use coitrees::Interval;
 use itertools::Itertools;
 use polars::prelude::*;
 
-use crate::{config::Config, Interval};
+use crate::config::Config;
 
 /// Write TSV file to file or stdout.
 pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Result<()> {

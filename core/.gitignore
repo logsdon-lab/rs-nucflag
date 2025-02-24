@@ -1,0 +1,5 @@
+/target
+*.tsv
+*.png
+*.bed
+*.cov
