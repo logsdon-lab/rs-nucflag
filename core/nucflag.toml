@@ -4,9 +4,10 @@ min_bp = 2
 merge_across_type = false
 
 [first]
-n_zscores = 4
+n_zscores_low = 3.4
+n_zscores_high = 3.4
 
 [second]
-n_zscores = 3.4
+n_zscores_high = 3.4
 min_perc = 0.05
 thr_het_ratio = 0.15

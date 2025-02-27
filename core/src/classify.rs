@@ -142,13 +142,12 @@ fn merge_misassemblies(
         .map_err(Into::into)
 }
 
-
 #[derive(Debug)]
 pub struct NucFlagResult {
     /// All called regions.
     pub regions: DataFrame,
     /// Pileup of regions.
-    pub cov: DataFrame 
+    pub cov: DataFrame,
 }
 
 /// Classify misasemblies from alignment read coverage.
@@ -157,7 +156,7 @@ pub struct NucFlagResult {
 /// * `bamfile`: Input BAM file path. Should be indexed and filtered to only primary alignments (?).  
 /// * `itv`: Interval to check.
 /// * `cfg`: Output BED file with misassemblies.
-/// 
+///
 /// # Returns
 /// * `NucFlagResult`
 pub fn classify_misassemblies(
@@ -176,15 +175,15 @@ pub fn classify_misassemblies(
     // This is never filtered so safe to left join without removing data.
     let lf_first_peaks = find_peaks(
         df_raw_pileup.select(["pos", "first"])?,
-        cfg.first.n_zscores,
+        cfg.first.n_zscores_low,
+        cfg.first.n_zscores_high,
         None,
-        true,
     )?;
     let lf_second_peaks = find_peaks(
         df_raw_pileup.select(["pos", "second"])?,
-        cfg.second.n_zscores,
+        cfg.second.n_zscores_high,
+        cfg.second.n_zscores_high,
         Some(cfg.second.min_perc),
-        false,
     )?;
 
     let df_pileup = lf_first_peaks
@@ -206,7 +205,7 @@ pub fn classify_misassemblies(
                 / (col("first").cast(DataType::Float32) + col("second").cast(DataType::Float32)))
             .alias("het_ratio"),
         );
-
+    
     let df_pileup = df_pileup
         .with_columns([
             // misjoin
@@ -214,9 +213,9 @@ pub fn classify_misassemblies(
             // * Zero coverage. Might be scaffold or misjoined contig. Without reference, not known.
             // * A dip in coverage with a high het ratio.
             when(
-                col("first").eq(lit(0)).or(col("first_peak")
-                    .eq(lit("low"))
-                    .and(col("second_peak").eq(lit("high")))),
+                col("first").eq(lit(0)).or(
+                    col("first_peak").eq(lit("low"))
+                ),
             )
             .then(lit("misjoin"))
             // collapse_var
@@ -241,8 +240,8 @@ pub fn classify_misassemblies(
             .when(
                 col("first")
                     .lt_eq(col("first").median() / lit(2))
-                    // Needs to scale with coverage.
-                    .and(col("first_all_zscore").lt(lit(-3.4)))
+                    // // Needs to scale with coverage.
+                    // .and(col("first_all_zscore"))
                     .and(col("mapq").eq(lit(0))),
             )
             .then(lit("false_dupe"))
@@ -289,7 +288,10 @@ pub fn classify_misassemblies(
     // Then merge and filter.
     log::info!("Merging intervals in {ctg}:{st}-{end}.");
     let df_itvs_final =
-        merge_misassemblies(df_itvs, bp_merge, bp_filter, cfg.general.merge_across_type)?.lazy().with_column(lit(ctg.clone()).alias("ctg")).collect()?;
+        merge_misassemblies(df_itvs, bp_merge, bp_filter, cfg.general.merge_across_type)?
+            .lazy()
+            .with_column(lit(ctg.clone()).alias("ctg"))
+            .collect()?;
 
     let (n_misassemblies, _) = df_itvs_final
         .select(["status"])?
@@ -299,5 +301,57 @@ pub fn classify_misassemblies(
         .shape();
 
     log::info!("Detected {n_misassemblies} misassemblies for {ctg}:{st}-{end}.",);
-    Ok(NucFlagResult { cov: df_pileup, regions: df_itvs_final})
+    Ok(NucFlagResult {
+        cov: df_pileup,
+        regions: df_itvs_final,
+    })
 }
+
+// #[cfg(test)]
+// mod test {
+//     use coitrees::Interval;
+//     use polars::prelude::*;
+
+//     use crate::config::Config;
+
+//     use super::classify_misassemblies;
+
+//     #[test]
+//     fn test_dupe() {
+//         /*
+//         cargo test --release --package nucflag --lib -- classify::test::test_dupe --exact --show-output
+//         */
+//         let res = classify_misassemblies(
+//             "test/dupes/aln_1.bam",
+//             &Interval::new(
+//                 58953186,
+//                 63997585,
+//                 "NA19240_chr7_haplotype1-0000022".to_owned(),
+//             ),
+//             Config::default(),
+//         )
+//         .unwrap();
+
+//         dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
+//     }
+
+
+//     #[test]
+//     fn test_minor_collapse() {
+//         /*
+//         cargo test --release --package nucflag --lib -- classify::test::test_minor_collapse --exact --show-output
+//         */
+//         let mut res = classify_misassemblies(
+//             "test/minor_collapse/aln_3.bam",
+//             &Interval::new(
+//                 38557200,
+//                 42638442,
+//                 "NA19036_chr10_haplotype2-0000059".to_owned(),
+//             ),
+//             toml::from_str(&std::fs::read_to_string("/project/logsdon_shared/projects/rs-nucflag/core/nucflag.toml").unwrap()).unwrap(),
+//         )
+//         .unwrap();
+
+//         dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
+//     }
+// }

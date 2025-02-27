@@ -10,10 +10,15 @@ use rayon::{prelude::*, ThreadPoolBuilder};
 
 #[pyclass]
 pub struct PyNucFlagResult {
+    #[pyo3(get)]
     pub ctg: String,
+    #[pyo3(get)]
     pub st: i32,
+    #[pyo3(get)]
     pub end: i32,
+    #[pyo3(get)]
     pub cov: PyDataFrame,
+    #[pyo3(get)]
     pub regions: PyDataFrame,
 }
 

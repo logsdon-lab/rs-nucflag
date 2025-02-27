@@ -35,13 +35,17 @@ impl Default for GeneralConfig {
 /// Configuration for the first-common base coverage signal.
 pub struct FirstConfig {
     /// Number of z-scores above the mean to be considered a misassembly.
-    /// Absolute value. For both collapses and misjoins
-    pub n_zscores: f32,
+    pub n_zscores_high: f32,
+    /// Number of z-scores below the mean to be considered a misassembly.
+    pub n_zscores_low: f32,
 }
 
 impl Default for FirstConfig {
     fn default() -> Self {
-        Self { n_zscores: 3.4 }
+        Self {
+            n_zscores_high: 3.4,
+            n_zscores_low: 3.4,
+        }
     }
 }
 
@@ -49,7 +53,7 @@ impl Default for FirstConfig {
 /// Configuration for the second-common base coverage signal.
 pub struct SecondConfig {
     /// Number of z-scores above the mean to flag.
-    pub n_zscores: f32,
+    pub n_zscores_high: f32,
     /// Threshold to remove background noise signal will have u=0.
     pub min_perc: f32,
     /// Ratio used to split hets from small collapses.
@@ -59,7 +63,7 @@ pub struct SecondConfig {
 impl Default for SecondConfig {
     fn default() -> Self {
         Self {
-            n_zscores: 3.4,
+            n_zscores_high: 3.4,
             min_perc: 0.25,
             thr_het_ratio: 0.2,
         }

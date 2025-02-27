@@ -5,9 +5,9 @@ use polars::prelude::*;
 // Remove influence parameter.
 pub fn find_peaks(
     df_pileup: DataFrame,
-    n_zscore: f32,
+    n_zscore_low: f32,
+    n_zscore_high: f32,
     min_perc: Option<f32>,
-    global_zscore: bool,
 ) -> eyre::Result<LazyFrame> {
     assert_eq!(
         df_pileup.get_column_names().len(),
@@ -36,7 +36,6 @@ pub fn find_peaks(
     let stdev_col = format!("{colname}_stdev");
     let peak_col = format!("{colname}_peak");
     let zscore_col = format!("{colname}_zscore");
-    let global_zscore_col = format!("{colname}_all_zscore");
 
     let lf_pileup = lf_pileup
         .with_column(col(&colname).mean().alias(&mean_col))
@@ -44,13 +43,10 @@ pub fn find_peaks(
         // Calculate zscore.
         .with_column(((col(&colname) - col(&mean_col)) / col(&stdev_col)).alias(&zscore_col))
         .with_column(
-            when(col(&zscore_col).abs().gt(lit(n_zscore)))
-                .then(
-                    // Then classify is peak or valley
-                    when(col(&colname).gt(col(&mean_col)))
-                        .then(lit("high"))
-                        .otherwise(lit("low")),
-                )
+            when(col(&zscore_col).gt(lit(n_zscore_high)))
+                .then(lit("high"))
+                .when(col(&zscore_col).lt(lit(-n_zscore_low)))
+                .then(lit("low"))
                 .otherwise(lit("null"))
                 .alias(&peak_col),
         );
@@ -74,15 +70,6 @@ pub fn find_peaks(
         lf_pileup
     };
 
-    let lf_pileup = if global_zscore {
-        // Calculate global zscore.
-        lf_pileup.with_column(
-            ((col(&colname) - col(&colname).mean()) / col(&colname).std(1))
-                .alias(global_zscore_col),
-        )
-    } else {
-        lf_pileup
-    };
     // Go back to u64
     Ok(lf_pileup.cast(
         PlHashMap::from_iter([(colname.as_str(), DataType::UInt64)]),
