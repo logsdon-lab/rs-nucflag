@@ -24,28 +24,19 @@ pub struct PyNucFlagResult {
 
 /// Classify a missassembly.
 #[pyfunction]
-#[pyo3(signature = (bamfile, bedfile, threads, cfg))]
+#[pyo3(signature = (bamfile, bedfile = None, threads = 1, cfg = None))]
 fn run_nucflag(
     bamfile: &str,
-    bedfile: &str,
+    bedfile: Option<&str>,
     threads: usize,
-    cfg: &str,
+    cfg: Option<&str>,
 ) -> PyResult<Vec<PyNucFlagResult>> {
-    let cfg = read_cfg(Some(cfg)).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let cfg = read_cfg(cfg).map_err(|err| PyValueError::new_err(err.to_string()))?;
 
     // Set rayon threadpool
     ThreadPoolBuilder::new().num_threads(threads);
 
-    let bed = read_bed(Some(bedfile), |name, st, end, _| {
-        Interval::new(
-            st.try_into().unwrap(),
-            end.try_into().unwrap(),
-            name.to_owned(),
-        )
-    })
-    .map_err(|err| PyValueError::new_err(err.to_string()))?;
-
-    let ctg_itvs: Vec<Interval<String>> = if bed.is_empty() {
+    let ctg_itvs: Vec<Interval<String>> = if bedfile.is_none() {
         // If no intervals, apply to whole genome based on header.
         let mut bamfile = bam::io::indexed_reader::Builder::default().build_from_path(bamfile)?;
         let header = bamfile.read_header()?;
@@ -60,7 +51,14 @@ fn run_nucflag(
             })
             .collect()
     } else {
-        bed
+        read_bed(bedfile, |name, st, end, _| {
+            Interval::new(
+                st.try_into().unwrap(),
+                end.try_into().unwrap(),
+                name.to_owned(),
+            )
+        })
+        .map_err(|err| PyValueError::new_err(err.to_string()))?
     };
 
     // Parallelize by contig.
