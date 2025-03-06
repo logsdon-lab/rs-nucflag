@@ -38,8 +38,8 @@ fn run_nucflag(
 
     let ctg_itvs: Vec<Interval<String>> = if bedfile.is_none() {
         // If no intervals, apply to whole genome based on header.
-        let mut bamfile = bam::io::indexed_reader::Builder::default().build_from_path(bamfile)?;
-        let header = bamfile.read_header()?;
+        let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(bamfile)?;
+        let header = bam.read_header()?;
 
         header
             .reference_sequences()

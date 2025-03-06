@@ -1,7 +1,7 @@
 use std::fs::File;
 
 use coitrees::{GenericInterval, Interval};
-use eyre::ContextCompat;
+use eyre::{bail, ContextCompat};
 use itertools::Itertools;
 use noodles::{
     bam,
@@ -18,6 +18,12 @@ pub struct PileupInfo {
     pub n_sec: u64,
     pub n_sup: u64,
     pub mapq: Vec<u8>,
+}
+
+pub struct PileupSummary {
+    pub itv: Interval<String>,
+    pub avg_depth: usize,
+    pub pileups: Vec<PileupInfo>
 }
 
 impl PileupInfo {
@@ -50,7 +56,7 @@ impl PileupInfo {
 }
 
 // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignedsegment.pyx#L2009
-fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, Kind)>> {
+pub fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, Kind)>> {
     let cg = read.cigar();
     let mut pos: usize = read.alignment_start().unwrap()?.get();
     let mut qpos: usize = 0;
@@ -79,15 +85,20 @@ fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, Kind
 pub fn pileup(
     bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
     itv: &Interval<String>,
-) -> eyre::Result<Vec<PileupInfo>> {
+) -> eyre::Result<PileupSummary> {
     let st: usize = itv.first.try_into()?;
     let end: usize = itv.last.try_into()?;
     let length: usize = itv.len().try_into()?;
 
     let header = bam.read_header()?;
+    let Some(ctg_end) = header.reference_sequences().get(itv.metadata.as_bytes()).map(|r| r.length().get()) else {
+        bail!("Cannot get contig end position for {}", itv.metadata)
+    };
+
+    // Query entire contig.
     let region = Region::new(
         &*itv.metadata,
-        Position::try_from(st)?..=Position::try_from(end)?,
+        Position::try_from(1)?..=Position::try_from(ctg_end)?,
     );
 
     // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignmentfile.pyx#L1458
@@ -95,37 +106,44 @@ pub fn pileup(
     let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length];
 
     log::info!("Generating pileup over {}:{st}-{end}.", region.name());
+    // Calculate average depth per contig.
+    let mut n_reads = 0;
+
     for read in query.into_iter().flatten() {
         let seq = read.sequence();
         let mapq = read.mapping_quality().unwrap().get();
         let flags = read.flags();
 
-        for (qpos, refpos, _) in get_aligned_pairs(&read)?
-            .iter()
-            .filter(|(_, refpos, _)| *refpos >= st && *refpos <= end)
-        {
-            let pos = refpos - st;
-            let pileup_info = &mut pileup_infos[pos];
-            pileup_info.mapq.push(mapq);
-
-            if flags.is_supplementary() {
-                pileup_info.n_sup += 1
-            }
-            if flags.is_secondary() {
-                pileup_info.n_sec += 1
-            }
-            let bp = seq.get(*qpos).unwrap();
-            match bp {
-                b'A' => pileup_info.n_a += 1,
-                b'C' => pileup_info.n_c += 1,
-                b'G' => pileup_info.n_g += 1,
-                b'T' => pileup_info.n_t += 1,
-                b'N' => (),
-                _ => log::debug!("Character not recognized at pos {pos}: {bp:?}"),
+        for (qpos, refpos, _) in get_aligned_pairs(&read)? {
+            // If within region of interest.
+            if refpos >= st && refpos <= end {
+                let pos = refpos - st;
+                let pileup_info = &mut pileup_infos[pos];
+                pileup_info.mapq.push(mapq);
+    
+                if flags.is_supplementary() {
+                    pileup_info.n_sup += 1
+                }
+                if flags.is_secondary() {
+                    pileup_info.n_sec += 1
+                }
+                let bp = seq.get(qpos).unwrap();
+                match bp {
+                    b'A' => pileup_info.n_a += 1,
+                    b'C' => pileup_info.n_c += 1,
+                    b'G' => pileup_info.n_g += 1,
+                    b'T' => pileup_info.n_t += 1,
+                    b'N' => (),
+                    _ => log::debug!("Character not recognized at pos {pos}: {bp:?}"),
+                }
+            } else {
+                
             }
         }
+        n_reads += 1;
     }
     log::info!("Finished pileup over {}:{st}-{end}.", region.name());
 
-    Ok(pileup_infos)
+    let avg_depth = ctg_end / n_reads;
+    Ok(PileupSummary { itv: itv.clone(), avg_depth, pileups: pileup_infos })
 }

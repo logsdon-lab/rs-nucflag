@@ -168,9 +168,16 @@ pub fn classify_misassemblies(
     let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
     let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(&bamfile)?;
     let pileup = pileup(&mut bam, itv)?;
+    
+    // Scale thresholds by contig depth. Regions with fewer mapped reads get stricter parameters.
+    let avg_depth = pileup.avg_depth; 
 
-    let df_raw_pileup = merge_pileup_info(pileup, st, end)?;
+    let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
+
+    let mean_first: usize = df_raw_pileup.column("first")?.mean_reduce().value().try_extract()?;
+
+    println!("{avg_depth},{mean_first}");
 
     // This is never filtered so safe to left join without removing data.
     let lf_first_peaks = find_peaks(
@@ -307,51 +314,71 @@ pub fn classify_misassemblies(
     })
 }
 
-// #[cfg(test)]
-// mod test {
-//     use coitrees::Interval;
-//     use polars::prelude::*;
+#[cfg(test)]
+mod test {
+    use coitrees::Interval;
+    use polars::prelude::*;
 
-//     use crate::config::Config;
+    use crate::config::Config;
 
-//     use super::classify_misassemblies;
+    use super::classify_misassemblies;
 
-//     #[test]
-//     fn test_dupe() {
-//         /*
-//         cargo test --release --package nucflag --lib -- classify::test::test_dupe --exact --show-output
-//         */
-//         let res = classify_misassemblies(
-//             "test/dupes/aln_1.bam",
-//             &Interval::new(
-//                 58953186,
-//                 63997585,
-//                 "NA19240_chr7_haplotype1-0000022".to_owned(),
-//             ),
-//             Config::default(),
-//         )
-//         .unwrap();
+    #[test]
+    fn test_dupe() {
+        /*
+        cargo test --release --package nucflag --lib -- classify::test::test_dupe --exact --show-output
+        */
+        let res = classify_misassemblies(
+            "test/dupes/aln_1.bam",
+            &Interval::new(
+                58953186,
+                63997585,
+                "NA19240_chr7_haplotype1-0000022".to_owned(),
+            ),
+            Config::default(),
+        )
+        .unwrap();
 
-//         dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
-//     }
+        dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
+    }
 
 
-//     #[test]
-//     fn test_minor_collapse() {
-//         /*
-//         cargo test --release --package nucflag --lib -- classify::test::test_minor_collapse --exact --show-output
-//         */
-//         let mut res = classify_misassemblies(
-//             "test/minor_collapse/aln_3.bam",
-//             &Interval::new(
-//                 38557200,
-//                 42638442,
-//                 "NA19036_chr10_haplotype2-0000059".to_owned(),
-//             ),
-//             toml::from_str(&std::fs::read_to_string("/project/logsdon_shared/projects/rs-nucflag/core/nucflag.toml").unwrap()).unwrap(),
-//         )
-//         .unwrap();
+    #[test]
+    fn test_minor_collapse() {
+        /*
+        cargo test --release --package nucflag --lib -- classify::test::test_minor_collapse --exact --show-output
+        */
+        let mut res = classify_misassemblies(
+            "test/minor_collapse/aln_3.bam",
+            &Interval::new(
+                38557200,
+                42638442,
+                "NA19036_chr10_haplotype2-0000059".to_owned(),
+            ),
+            toml::from_str(&std::fs::read_to_string("/project/logsdon_shared/projects/rs-nucflag/core/nucflag.toml").unwrap()).unwrap(),
+        )
+        .unwrap();
 
-//         dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
-//     }
-// }
+        dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
+    }
+
+    #[test]
+    fn test_collapse_other() {
+        /*
+        cargo test --release --package nucflag --lib -- classify::test::test_collapse_other --exact --show-output
+        */
+        let mut res = classify_misassemblies(
+            "/home/koisland/Projects/NucFlag/test/collapse_other/HG00171_hifi.bam",
+            &Interval::new(
+                1881763,
+                8120526,
+                "HG00171_chr16_haplotype1-0000003".to_owned(),
+            ),
+            Config::default(),
+        )
+        .unwrap();
+
+        dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
+    }
+
+}
