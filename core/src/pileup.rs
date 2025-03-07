@@ -21,9 +21,14 @@ pub struct PileupInfo {
 }
 
 pub struct PileupSummary {
-    pub itv: Interval<String>,
-    pub avg_depth: usize,
-    pub pileups: Vec<PileupInfo>
+    pub region: Region,
+    pub pileups: Vec<PileupInfo>,
+}
+
+pub struct DepthSummary {
+    pub region: Region,
+    pub avg_depth: u64,
+    // pub depth: Vec<u16>,
 }
 
 impl PileupInfo {
@@ -82,6 +87,54 @@ pub fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, 
     Ok(pairs)
 }
 
+pub fn depth(
+    bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
+    ctg: &str,
+) -> eyre::Result<DepthSummary> {
+    let header = bam.read_header()?;
+    let Some(ctg_end) = header
+        .reference_sequences()
+        .get(ctg.as_bytes())
+        .map(|r| r.length().get())
+    else {
+        bail!("Cannot get contig end position for {ctg}")
+    };
+    // Query entire contig.
+    let region = Region::new(
+        &*ctg.as_bytes(),
+        Position::try_from(1)?..=Position::try_from(ctg_end)?,
+    );
+
+    // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignmentfile.pyx#L1458
+    let query = bam.query(&header, &region)?;
+    // Calculate average depth per contig.
+    let mut ctg_depth: Vec<u16> = vec![0; ctg_end];
+
+    log::info!("Calculating depth over {ctg}:1-{ctg_end}.");
+    for read in query.into_iter().flatten() {
+        for (_qpos, refpos, _) in get_aligned_pairs(&read)? {
+            ctg_depth[refpos] += 1;
+        }
+    }
+    log::info!("Finished depth over {ctg}:1-{ctg_end}.");
+
+    let mut depth_sum: u64 = 0;
+    let mut depth_pos: u64 = 0;
+    for d in ctg_depth.iter().filter(|d| **d != 0) {
+        depth_sum += *d as u64;
+        depth_pos += 1u64;
+    }
+    let avg_depth = depth_sum
+        .checked_div(depth_pos)
+        .with_context(|| format!("Cannot calculate average depth for {region:?}"))?;
+
+    Ok(DepthSummary {
+        region,
+        avg_depth,
+        // depth: ctg_depth,
+    })
+}
+
 pub fn pileup(
     bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
     itv: &Interval<String>,
@@ -90,60 +143,53 @@ pub fn pileup(
     let end: usize = itv.last.try_into()?;
     let length: usize = itv.len().try_into()?;
 
-    let header = bam.read_header()?;
-    let Some(ctg_end) = header.reference_sequences().get(itv.metadata.as_bytes()).map(|r| r.length().get()) else {
-        bail!("Cannot get contig end position for {}", itv.metadata)
-    };
-
     // Query entire contig.
     let region = Region::new(
         &*itv.metadata,
-        Position::try_from(1)?..=Position::try_from(ctg_end)?,
+        Position::try_from(st)?..=Position::try_from(end)?,
     );
+
+    let header = bam.read_header()?;
 
     // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignmentfile.pyx#L1458
     let query = bam.query(&header, &region)?;
     let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length];
 
     log::info!("Generating pileup over {}:{st}-{end}.", region.name());
-    // Calculate average depth per contig.
-    let mut n_reads = 0;
-
     for read in query.into_iter().flatten() {
         let seq = read.sequence();
         let mapq = read.mapping_quality().unwrap().get();
         let flags = read.flags();
+        // If within region of interest.
+        for (qpos, refpos, _) in get_aligned_pairs(&read)?
+            .into_iter()
+            .filter(|(_, refpos, _)| *refpos >= st && *refpos <= end)
+        {
+            let pos = refpos - st;
+            let pileup_info = &mut pileup_infos[pos];
+            pileup_info.mapq.push(mapq);
 
-        for (qpos, refpos, _) in get_aligned_pairs(&read)? {
-            // If within region of interest.
-            if refpos >= st && refpos <= end {
-                let pos = refpos - st;
-                let pileup_info = &mut pileup_infos[pos];
-                pileup_info.mapq.push(mapq);
-    
-                if flags.is_supplementary() {
-                    pileup_info.n_sup += 1
-                }
-                if flags.is_secondary() {
-                    pileup_info.n_sec += 1
-                }
-                let bp = seq.get(qpos).unwrap();
-                match bp {
-                    b'A' => pileup_info.n_a += 1,
-                    b'C' => pileup_info.n_c += 1,
-                    b'G' => pileup_info.n_g += 1,
-                    b'T' => pileup_info.n_t += 1,
-                    b'N' => (),
-                    _ => log::debug!("Character not recognized at pos {pos}: {bp:?}"),
-                }
-            } else {
-                
+            if flags.is_supplementary() {
+                pileup_info.n_sup += 1
+            }
+            if flags.is_secondary() {
+                pileup_info.n_sec += 1
+            }
+            let bp = seq.get(qpos).unwrap();
+            match bp {
+                b'A' => pileup_info.n_a += 1,
+                b'C' => pileup_info.n_c += 1,
+                b'G' => pileup_info.n_g += 1,
+                b'T' => pileup_info.n_t += 1,
+                b'N' => (),
+                _ => log::debug!("Character not recognized at pos {pos}: {bp:?}"),
             }
         }
-        n_reads += 1;
     }
     log::info!("Finished pileup over {}:{st}-{end}.", region.name());
 
-    let avg_depth = ctg_end / n_reads;
-    Ok(PileupSummary { itv: itv.clone(), avg_depth, pileups: pileup_infos })
+    Ok(PileupSummary {
+        region,
+        pileups: pileup_infos,
+    })
 }

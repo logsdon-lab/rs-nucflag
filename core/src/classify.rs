@@ -156,6 +156,7 @@ pub struct NucFlagResult {
 /// * `bamfile`: Input BAM file path. Should be indexed and filtered to only primary alignments (?).  
 /// * `itv`: Interval to check.
 /// * `cfg`: Output BED file with misassemblies.
+/// * `avg_cov`: Average coverage of contig.
 ///
 /// # Returns
 /// * `NucFlagResult`
@@ -163,23 +164,30 @@ pub fn classify_misassemblies(
     bamfile: impl AsRef<Path>,
     itv: &Interval<String>,
     cfg: Config,
+    avg_cov: Option<u64>,
 ) -> eyre::Result<NucFlagResult> {
     let ctg = itv.metadata.clone();
     let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
     let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(&bamfile)?;
     let pileup = pileup(&mut bam, itv)?;
-    
-    // Scale thresholds by contig depth. Regions with fewer mapped reads get stricter parameters.
-    let avg_depth = pileup.avg_depth; 
 
+    // Scale thresholds by contig depth. Regions with fewer mapped reads get stricter parameters.
     let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
-    let mean_first: usize = df_raw_pileup.column("first")?.mean_reduce().value().try_extract()?;
+    let mean_first: u64 = df_raw_pileup
+        .column("first")?
+        .mean_reduce()
+        .value()
+        .try_extract()?;
+    let mean_second: u64 = df_raw_pileup
+        .column("second")?
+        .mean_reduce()
+        .value()
+        .try_extract()?;
+    let mean_cov = avg_cov.unwrap_or(mean_first + mean_second);
+    log::debug!("Average coverage for {ctg}:{st}-{end}: {mean_cov}");
 
-    println!("{avg_depth},{mean_first}");
-
-    // This is never filtered so safe to left join without removing data.
     let lf_first_peaks = find_peaks(
         df_raw_pileup.select(["pos", "first"])?,
         cfg.first.n_zscores_low,
@@ -212,25 +220,23 @@ pub fn classify_misassemblies(
                 / (col("first").cast(DataType::Float32) + col("second").cast(DataType::Float32)))
             .alias("het_ratio"),
         );
-    
+
     let df_pileup = df_pileup
-        .with_columns([
-            // misjoin
-            // Regions with either:
-            // * Zero coverage. Might be scaffold or misjoined contig. Without reference, not known.
-            // * A dip in coverage with a high het ratio.
-            when(
-                col("first").eq(lit(0)).or(
-                    col("first_peak").eq(lit("low"))
-                ),
-            )
-            .then(lit("misjoin"))
+        .with_column(
+            // collapse_other
+            // Regions with higher than expected het ratio.
+            when(col("het_ratio").gt_eq(lit(cfg.second.thr_het_ratio)))
+                .then(lit("collapse_other"))
+                .otherwise(lit("good"))
+                .alias("status"),
+        )
+        .with_column(
             // collapse_var
             // Regions with high coverage and a high coverage of another variant.
-            .when(
-                col("second_peak")
+            when(
+                col("first_peak")
                     .eq(lit("high"))
-                    .and(col("first_peak").eq(lit("high"))),
+                    .and(col("status").eq(lit("collapse_other"))),
             )
             .then(lit("collapse_var"))
             // collapse
@@ -241,23 +247,29 @@ pub fn classify_misassemblies(
                     .and(col("second_peak").eq(lit("null"))),
             )
             .then(lit("collapse"))
-            // false_dupe
-            // Region with half of the expected coverage, n-zscores less than the global mean, and zero-mapq due to multi-mapping.
-            // Either a duplicated contig or duplicated region.
-            .when(
-                col("first")
-                    .lt_eq(col("first").median() / lit(2))
-                    // // Needs to scale with coverage.
-                    // .and(col("first_all_zscore"))
-                    .and(col("mapq").eq(lit(0))),
-            )
-            .then(lit("false_dupe"))
-            // collapse_other
-            // Regions with higher than expected het ratio.
-            .when(col("het_ratio").gt_eq(lit(cfg.second.thr_het_ratio)))
-            .then(lit("collapse_other"))
-            .otherwise(lit("good"))
+            .otherwise(col("status"))
             .alias("status"),
+        )
+        .with_columns([
+            // misjoin
+            // Regions with either:
+            // * Zero coverage. Might be scaffold or misjoined contig. Without reference, not known.
+            // * A dip in coverage with a high het ratio.
+            when(col("first").eq(lit(0)).or(col("first_peak").eq(lit("low"))))
+                .then(lit("misjoin"))
+                // false_dupe
+                // Region with half of the expected coverage, n-zscores less than the global mean, and zero-mapq due to multi-mapping.
+                // Either a duplicated contig or duplicated region.
+                .when(
+                    col("first")
+                        .lt_eq(lit(mean_cov / 2))
+                        // // Needs to scale with coverage.
+                        // .and(col("first_all_zscore"))
+                        .and(col("mapq").eq(lit(0))),
+                )
+                .then(lit("false_dupe"))
+                .otherwise(col("status"))
+                .alias("status"),
         ])
         .select([
             col("pos"),
@@ -312,73 +324,4 @@ pub fn classify_misassemblies(
         cov: df_pileup,
         regions: df_itvs_final,
     })
-}
-
-#[cfg(test)]
-mod test {
-    use coitrees::Interval;
-    use polars::prelude::*;
-
-    use crate::config::Config;
-
-    use super::classify_misassemblies;
-
-    #[test]
-    fn test_dupe() {
-        /*
-        cargo test --release --package nucflag --lib -- classify::test::test_dupe --exact --show-output
-        */
-        let res = classify_misassemblies(
-            "test/dupes/aln_1.bam",
-            &Interval::new(
-                58953186,
-                63997585,
-                "NA19240_chr7_haplotype1-0000022".to_owned(),
-            ),
-            Config::default(),
-        )
-        .unwrap();
-
-        dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
-    }
-
-
-    #[test]
-    fn test_minor_collapse() {
-        /*
-        cargo test --release --package nucflag --lib -- classify::test::test_minor_collapse --exact --show-output
-        */
-        let mut res = classify_misassemblies(
-            "test/minor_collapse/aln_3.bam",
-            &Interval::new(
-                38557200,
-                42638442,
-                "NA19036_chr10_haplotype2-0000059".to_owned(),
-            ),
-            toml::from_str(&std::fs::read_to_string("/project/logsdon_shared/projects/rs-nucflag/core/nucflag.toml").unwrap()).unwrap(),
-        )
-        .unwrap();
-
-        dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
-    }
-
-    #[test]
-    fn test_collapse_other() {
-        /*
-        cargo test --release --package nucflag --lib -- classify::test::test_collapse_other --exact --show-output
-        */
-        let mut res = classify_misassemblies(
-            "/home/koisland/Projects/NucFlag/test/collapse_other/HG00171_hifi.bam",
-            &Interval::new(
-                1881763,
-                8120526,
-                "HG00171_chr16_haplotype1-0000003".to_owned(),
-            ),
-            Config::default(),
-        )
-        .unwrap();
-
-        dbg!(res.regions.clone().lazy().filter(col("status").neq(lit("good"))).collect().unwrap());
-    }
-
 }

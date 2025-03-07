@@ -1,3 +1,4 @@
+use noodles::sam::alignment::record::cigar::Op;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug, Default, Clone)]
@@ -19,6 +20,11 @@ pub struct GeneralConfig {
     pub min_bp: usize,
     /// Merge across misassembly type.
     pub merge_across_type: bool,
+    /// Window used if no bedfile provided.
+    pub window: usize,
+    /// Baseline coverage. Defaults to average coverage of contig.
+    /// Used in combination with scale_fct_cov.
+    pub baseline_cov: Option<u64>,
 }
 
 impl Default for GeneralConfig {
@@ -27,6 +33,8 @@ impl Default for GeneralConfig {
             bp_merge: 5000,
             min_bp: 1,
             merge_across_type: false,
+            window: 10_000_000,
+            baseline_cov: None
         }
     }
 }

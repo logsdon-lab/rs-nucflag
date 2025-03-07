@@ -10,4 +10,4 @@ n_zscores_high = 3.4
 [second]
 n_zscores_high = 3.4
 min_perc = 0.05
-thr_het_ratio = 0.15
+thr_het_ratio = 0.2
