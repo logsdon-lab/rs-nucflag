@@ -1,4 +1,3 @@
-use noodles::sam::alignment::record::cigar::Op;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug, Default, Clone)]
@@ -22,8 +21,7 @@ pub struct GeneralConfig {
     pub merge_across_type: bool,
     /// Window used if no bedfile provided.
     pub window: usize,
-    /// Baseline coverage. Defaults to average coverage of contig.
-    /// Used in combination with scale_fct_cov.
+    /// Baseline coverage. Defaults to average coverage of region.
     pub baseline_cov: Option<u64>,
 }
 

@@ -1,7 +1,7 @@
 use std::fs::File;
 
 use coitrees::{GenericInterval, Interval};
-use eyre::{bail, ContextCompat};
+use eyre::ContextCompat;
 use itertools::Itertools;
 use noodles::{
     bam,
@@ -85,54 +85,6 @@ pub fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, 
         }
     }
     Ok(pairs)
-}
-
-pub fn depth(
-    bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
-    ctg: &str,
-) -> eyre::Result<DepthSummary> {
-    let header = bam.read_header()?;
-    let Some(ctg_end) = header
-        .reference_sequences()
-        .get(ctg.as_bytes())
-        .map(|r| r.length().get())
-    else {
-        bail!("Cannot get contig end position for {ctg}")
-    };
-    // Query entire contig.
-    let region = Region::new(
-        &*ctg.as_bytes(),
-        Position::try_from(1)?..=Position::try_from(ctg_end)?,
-    );
-
-    // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignmentfile.pyx#L1458
-    let query = bam.query(&header, &region)?;
-    // Calculate average depth per contig.
-    let mut ctg_depth: Vec<u16> = vec![0; ctg_end];
-
-    log::info!("Calculating depth over {ctg}:1-{ctg_end}.");
-    for read in query.into_iter().flatten() {
-        for (_qpos, refpos, _) in get_aligned_pairs(&read)? {
-            ctg_depth[refpos] += 1;
-        }
-    }
-    log::info!("Finished depth over {ctg}:1-{ctg_end}.");
-
-    let mut depth_sum: u64 = 0;
-    let mut depth_pos: u64 = 0;
-    for d in ctg_depth.iter().filter(|d| **d != 0) {
-        depth_sum += *d as u64;
-        depth_pos += 1u64;
-    }
-    let avg_depth = depth_sum
-        .checked_div(depth_pos)
-        .with_context(|| format!("Cannot calculate average depth for {region:?}"))?;
-
-    Ok(DepthSummary {
-        region,
-        avg_depth,
-        // depth: ctg_depth,
-    })
 }
 
 pub fn pileup(

@@ -1,12 +1,8 @@
 use core::str;
-use std::collections::HashMap;
-
 use coitrees::Interval;
 use noodles::bam;
 use nucflag::{
-    classify::classify_misassemblies,
-    io::{read_bed, read_cfg},
-    pileup::depth,
+    classify::classify_misassemblies, io::{read_bed, read_cfg}
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 use pyo3_polars::PyDataFrame;
@@ -79,29 +75,13 @@ fn run_nucflag(
         })
         .map_err(|err| PyValueError::new_err(err.to_string()))?
     };
-    // Calculate depth per contig or use provided baseline.
-    let ctg_covs: HashMap<String, u64> = ctg_itvs
-        .par_iter()
-        .map(move |itv| {
-            let mut bam = bam::io::indexed_reader::Builder::default()
-                .build_from_path(bamfile)
-                .unwrap();
-            if let Some(baseline_cov) = cfg.general.baseline_cov {
-                (itv.metadata.clone(), baseline_cov)
-            } else {
-                let depth_summary = depth(&mut bam, itv.metadata.as_ref()).unwrap();
-                (itv.metadata.clone(), depth_summary.avg_depth)
-            }
-        })
-        .collect();
 
     // Parallelize by contig.
     Ok(ctg_itvs
         .into_par_iter()
         .map(|itv| {
-            let avg_cov = ctg_covs.get(&itv.metadata).cloned();
             // Open the BAM file in read-only per thread.
-            let res = classify_misassemblies(bamfile, &itv, cfg.clone(), avg_cov).unwrap();
+            let res = classify_misassemblies(bamfile, &itv, cfg.clone(), cfg.general.baseline_cov).unwrap();
             PyNucFlagResult {
                 ctg: itv.metadata,
                 st: itv.first,
