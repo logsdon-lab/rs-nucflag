@@ -32,16 +32,19 @@ pub fn find_peaks(
         )
         .select([col("pos"), col(&colname)]);
 
-    let mean_col = format!("{colname}_mean");
+    let median_col = format!("{colname}_median");
     let stdev_col = format!("{colname}_stdev");
     let peak_col = format!("{colname}_peak");
     let zscore_col = format!("{colname}_zscore");
 
     let lf_pileup = lf_pileup
-        .with_column(col(&colname).mean().alias(&mean_col))
-        .with_column(col(&colname).std(1).alias(&stdev_col))
+        .with_column(col(&colname).median().alias(&median_col))
+        .with_column(
+            col(&colname).median().sqrt()
+            .alias(&stdev_col)
+        )
         // Calculate zscore.
-        .with_column(((col(&colname) - col(&mean_col)) / col(&stdev_col)).alias(&zscore_col))
+        .with_column(((col(&colname) - col(&median_col)) / col(&stdev_col)).alias(&zscore_col))
         .with_column(
             when(col(&zscore_col).gt(lit(n_zscore_high)))
                 .then(lit("high"))

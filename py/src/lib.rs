@@ -79,15 +79,21 @@ fn run_nucflag(
     // Parallelize by contig.
     Ok(ctg_itvs
         .into_par_iter()
-        .map(|itv| {
+        .flat_map(|itv| {
             // Open the BAM file in read-only per thread.
-            let res = classify_misassemblies(bamfile, &itv, cfg.clone(), cfg.general.baseline_cov).unwrap();
-            PyNucFlagResult {
-                ctg: itv.metadata,
-                st: itv.first,
-                end: itv.last,
-                cov: PyDataFrame(res.cov),
-                regions: PyDataFrame(res.regions),
+            let res = classify_misassemblies(bamfile, &itv, cfg.clone(), cfg.general.baseline_cov);
+            match res {
+                Ok(res) => Some(PyNucFlagResult {
+                    ctg: itv.metadata,
+                    st: itv.first,
+                    end: itv.last,
+                    cov: PyDataFrame(res.cov),
+                    regions: PyDataFrame(res.regions),
+                }),
+                Err(err) => {
+                    eprintln!("Error: {err}");
+                    None
+                },
             }
         })
         .collect())

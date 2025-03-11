@@ -1,10 +1,7 @@
 use std::path::Path;
 
 use crate::{
-    config::Config,
-    intervals::merge_overlapping_intervals,
-    peak::find_peaks,
-    pileup::{pileup, PileupInfo},
+    config::Config, intervals::merge_overlapping_intervals, io::write_tsv, peak::find_peaks, pileup::{pileup, PileupInfo}
 };
 use coitrees::{GenericInterval, Interval};
 use itertools::{multizip, Itertools};
@@ -175,18 +172,18 @@ pub fn classify_misassemblies(
     let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
-    let mean_first: u64 = df_raw_pileup
+    let median_first: u64 = df_raw_pileup
         .column("first")?
-        .mean_reduce()
+        .median_reduce()?
         .value()
         .try_extract()?;
-    let mean_second: u64 = df_raw_pileup
+    let median_second: u64 = df_raw_pileup
         .column("second")?
-        .mean_reduce()
+        .median_reduce()?
         .value()
         .try_extract()?;
-    let mean_cov = avg_cov.unwrap_or(mean_first + mean_second);
-    log::debug!("Average coverage for {ctg}:{st}-{end}: {mean_cov}");
+    let median_cov = avg_cov.unwrap_or(median_first + median_second);
+    log::debug!("Average coverage for {ctg}:{st}-{end}: {median_cov}");
 
     let lf_first_peaks = find_peaks(
         df_raw_pileup.select(["pos", "first"])?,
@@ -201,7 +198,7 @@ pub fn classify_misassemblies(
         Some(cfg.second.min_perc),
     )?;
 
-    let df_pileup = lf_first_peaks
+    let lf_pileup = lf_first_peaks
         .join(
             lf_second_peaks,
             [col("pos")],
@@ -221,7 +218,7 @@ pub fn classify_misassemblies(
             .alias("het_ratio"),
         );
 
-    let df_pileup = df_pileup
+    let mut df_pileup = lf_pileup
         .with_column(
             // collapse_other
             // Regions with higher than expected het ratio.
@@ -244,7 +241,7 @@ pub fn classify_misassemblies(
             .when(
                 col("first_peak")
                     .eq(lit("high"))
-                    .and(col("second_peak").eq(lit("null"))),
+                    .and(col("second_peak").eq(lit("null")))
             )
             .then(lit("collapse"))
             .otherwise(col("status"))
@@ -262,7 +259,7 @@ pub fn classify_misassemblies(
                 // Either a duplicated contig or duplicated region.
                 .when(
                     col("first")
-                        .lt_eq(lit(mean_cov / 2))
+                        .lt_eq(lit(median_cov / 2))
                         // // Needs to scale with coverage.
                         // .and(col("first_all_zscore"))
                         .and(col("mapq").eq(lit(0))),
@@ -275,8 +272,8 @@ pub fn classify_misassemblies(
             col("pos"),
             col("first"),
             col("second"),
-            col("first_mean"),
-            col("second_mean"),
+            col("first_median"),
+            col("second_median"),
             col("mapq"),
             col("status"),
         ])
