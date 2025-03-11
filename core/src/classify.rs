@@ -139,10 +139,103 @@ pub struct NucFlagResult {
     /// All called regions.
     pub regions: DataFrame,
     /// Pileup of regions.
-    pub cov: DataFrame,
+    pub cov: Option<DataFrame>,
 }
 
-/// Classify misasemblies from alignment read coverage.
+fn classify_peaks(
+    lf_pileup: LazyFrame,
+    ctg: &str,
+    cfg: &Config,
+    median_cov: u64
+) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
+    let df_pileup = lf_pileup
+        .with_column(
+            // collapse_other
+            // Regions with higher than expected het ratio.
+            when(col("het_ratio").gt_eq(lit(cfg.second.thr_het_ratio)))
+                .then(lit("collapse_other"))
+                .otherwise(lit("good"))
+                .alias("status"),
+        )
+        .with_column(
+            // collapse_var
+            // Regions with high coverage and a high coverage of another variant.
+            when(
+                col("first_peak")
+                    .eq(lit("high"))
+                    .and(col("status").eq(lit("collapse_other"))),
+            )
+            .then(lit("collapse_var"))
+            // collapse
+            // Perfect collapse of repetitive region with few to no secondary variants.
+            .when(
+                col("first_peak")
+                    .eq(lit("high"))
+                    .and(col("second_peak").eq(lit("null"))),
+            )
+            .then(lit("collapse"))
+            .otherwise(col("status"))
+            .alias("status"),
+        )
+        .with_columns([
+            // misjoin
+            // Regions with either:
+            // * Zero coverage. Might be scaffold or misjoined contig. Without reference, not known.
+            // * A dip in coverage with a high het ratio.
+            when(col("first").eq(lit(0)).or(col("first_peak").eq(lit("low"))))
+                .then(lit("misjoin"))
+                // false_dupe
+                // Region with half of the expected coverage, n-zscores less than the global mean, and zero-mapq due to multi-mapping.
+                // Either a duplicated contig or duplicated region.
+                .when(
+                    col("first")
+                        .lt_eq(lit(median_cov / 2))
+                        // // Needs to scale with coverage.
+                        // .and(col("first_all_zscore"))
+                        .and(col("mapq").eq(lit(0))),
+                )
+                .then(lit("false_dupe"))
+                .otherwise(col("status"))
+                .alias("status"),
+        ])
+        .with_column(lit(ctg).alias("chrom"))
+        .select([
+            col("chrom"),
+            col("pos"),
+            col("first"),
+            col("second"),
+            col("first_zscore"),
+            col("second_zscore"),
+            col("mapq"),
+            col("status"),
+        ])
+        .collect()?;
+
+    // Construct intervals.
+    // Store [st,end,type,cov]
+    let df_itvs = df_pileup
+        .select(["pos", "first", "second", "status"])?
+        .lazy()
+        .with_column(col("status").rle_id().alias("group"))
+        .group_by([col("group")])
+        .agg([
+            col("pos").min().alias("st"),
+            col("pos").max().alias("end") + lit(1),
+            (col("first") + col("second"))
+                .mean()
+                .alias("cov")
+                .cast(DataType::UInt8),
+            col("status").first(),
+        ])
+        .drop([col("group")])
+        .collect()?;
+    
+    Ok(
+        (df_itvs, cfg.general.store_coverage.then_some(df_pileup))
+    )
+}
+
+/// Detect misasemblies from alignment read coverage using per-base read coverage.
 ///
 /// # Arguments
 /// * `bamfile`: Input BAM file path. Should be indexed and filtered to only primary alignments (?).  
@@ -152,7 +245,7 @@ pub struct NucFlagResult {
 ///
 /// # Returns
 /// * [`NucFlagResult`]
-pub fn classify_misassemblies(
+pub fn nucflag(
     bamfile: impl AsRef<Path>,
     itv: &Interval<String>,
     cfg: Config,
@@ -213,87 +306,9 @@ pub fn classify_misassemblies(
             .alias("het_ratio"),
         );
 
-    let df_pileup = lf_pileup
-        .with_column(
-            // collapse_other
-            // Regions with higher than expected het ratio.
-            when(col("het_ratio").gt_eq(lit(cfg.second.thr_het_ratio)))
-                .then(lit("collapse_other"))
-                .otherwise(lit("good"))
-                .alias("status"),
-        )
-        .with_column(
-            // collapse_var
-            // Regions with high coverage and a high coverage of another variant.
-            when(
-                col("first_peak")
-                    .eq(lit("high"))
-                    .and(col("status").eq(lit("collapse_other"))),
-            )
-            .then(lit("collapse_var"))
-            // collapse
-            // Perfect collapse of repetitive region with few to no secondary variants.
-            .when(
-                col("first_peak")
-                    .eq(lit("high"))
-                    .and(col("second_peak").eq(lit("null"))),
-            )
-            .then(lit("collapse"))
-            .otherwise(col("status"))
-            .alias("status"),
-        )
-        .with_columns([
-            // misjoin
-            // Regions with either:
-            // * Zero coverage. Might be scaffold or misjoined contig. Without reference, not known.
-            // * A dip in coverage with a high het ratio.
-            when(col("first").eq(lit(0)).or(col("first_peak").eq(lit("low"))))
-                .then(lit("misjoin"))
-                // false_dupe
-                // Region with half of the expected coverage, n-zscores less than the global mean, and zero-mapq due to multi-mapping.
-                // Either a duplicated contig or duplicated region.
-                .when(
-                    col("first")
-                        .lt_eq(lit(median_cov / 2))
-                        // // Needs to scale with coverage.
-                        // .and(col("first_all_zscore"))
-                        .and(col("mapq").eq(lit(0))),
-                )
-                .then(lit("false_dupe"))
-                .otherwise(col("status"))
-                .alias("status"),
-        ])
-        .with_column(lit(ctg.clone()).alias("chrom"))
-        .select([
-            col("chrom"),
-            col("pos"),
-            col("first"),
-            col("second"),
-            col("first_zscore"),
-            col("second_zscore"),
-            col("mapq"),
-            col("status"),
-        ])
-        .collect()?;
+    std::mem::drop(df_raw_pileup);
 
-    // Construct intervals.
-    // Store [st,end,type,cov]
-    let df_itvs = df_pileup
-        .select(["pos", "first", "second", "status"])?
-        .lazy()
-        .with_column(col("status").rle_id().alias("group"))
-        .group_by([col("group")])
-        .agg([
-            col("pos").min().alias("st"),
-            col("pos").max().alias("end") + lit(1),
-            (col("first") + col("second"))
-                .mean()
-                .alias("cov")
-                .cast(DataType::UInt8),
-            col("status").first(),
-        ])
-        .drop([col("group")])
-        .collect()?;
+    let (df_itvs, df_pileup) = classify_peaks(lf_pileup, &ctg, &cfg, median_cov)?;
 
     let bp_filter: i32 = cfg.general.min_bp.try_into()?;
     let bp_merge: i32 = cfg.general.bp_merge.try_into()?;

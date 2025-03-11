@@ -2,7 +2,7 @@ use std::error::Error;
 
 use coitrees::Interval;
 use nucflag::{
-    classify::{classify_misassemblies, NucFlagResult},
+    classify::{nucflag, NucFlagResult},
     config::Config,
     io::{read_bed, read_cfg, write_tsv},
 };
@@ -41,13 +41,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         .into_par_iter()
         .map(|itv| {
             // Open the BAM file in read-only per thread.
-            classify_misassemblies(bam, &itv, cfg.clone(), None).unwrap()
+            nucflag(bam, &itv, cfg.clone(), None).unwrap()
         })
         .collect();
 
     eprintln!("Done! Writing to stdout.");
     for mut res in all_regions.into_iter() {
-        write_tsv(&mut res.cov, None::<&str>)?;
+        write_tsv(&mut res.regions, None::<&str>)?;
     }
 
     Ok(())

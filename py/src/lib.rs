@@ -2,7 +2,7 @@ use coitrees::Interval;
 use core::str;
 use noodles::bam;
 use nucflag::{
-    classify::classify_misassemblies,
+    classify::nucflag,
     io::{read_bed, read_cfg},
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
@@ -22,7 +22,7 @@ pub struct PyNucFlagResult {
     pub end: i32,
     /// Coverage regions.
     #[pyo3(get)]
-    pub cov: PyDataFrame,
+    pub cov: Option<PyDataFrame>,
     /// Regions and their status.
     #[pyo3(get)]
     pub regions: PyDataFrame,
@@ -87,13 +87,13 @@ fn run_nucflag(
         .into_par_iter()
         .flat_map(|itv| {
             // Open the BAM file in read-only per thread.
-            let res = classify_misassemblies(bamfile, &itv, cfg.clone(), cfg.general.baseline_cov);
+            let res = nucflag(bamfile, &itv, cfg.clone(), cfg.general.baseline_cov);
             match res {
                 Ok(res) => Some(PyNucFlagResult {
                     ctg: itv.metadata,
                     st: itv.first,
                     end: itv.last,
-                    cov: PyDataFrame(res.cov),
+                    cov: res.cov.map(PyDataFrame),
                     regions: PyDataFrame(res.regions),
                 }),
                 Err(err) => {

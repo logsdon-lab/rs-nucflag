@@ -19,10 +19,12 @@ pub struct GeneralConfig {
     pub min_bp: usize,
     /// Merge across misassembly type.
     pub merge_across_type: bool,
-    /// Window used if no bedfile provided.
+    /// Window in base pairs. Only used if no BED file is provided.
     pub window: usize,
-    /// Baseline coverage. Defaults to average coverage of region.
+    /// Baseline coverage used for false-duplication classification. Defaults to average coverage of region.
     pub baseline_cov: Option<u64>,
+    /// Store coverage data. Toggle off to reduce memory usage.
+    pub store_coverage: bool
 }
 
 impl Default for GeneralConfig {
@@ -33,6 +35,7 @@ impl Default for GeneralConfig {
             merge_across_type: false,
             window: 10_000_000,
             baseline_cov: None,
+            store_coverage: true
         }
     }
 }
@@ -49,8 +52,8 @@ pub struct FirstConfig {
 impl Default for FirstConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 3.4,
-            n_zscores_low: 3.4,
+            n_zscores_high: 4.0,
+            n_zscores_low: 4.0,
         }
     }
 }
