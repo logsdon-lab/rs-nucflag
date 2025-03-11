@@ -41,7 +41,7 @@ pub fn write_itvs<'a, T: Debug + Clone + 'a>(
     Ok(())
 }
 
-/// Read an BED file and return a list of [`Interval`]s.
+/// Read a BED file and return a list of [`Interval`]s.
 ///
 /// # Arguments
 /// * `bed`: Bedfile path.

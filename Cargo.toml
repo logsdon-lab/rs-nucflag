@@ -2,5 +2,6 @@
 resolver = "2"
 members = [
   "py",
-  "core", "examples",
+  "core",
+  "examples",
 ]

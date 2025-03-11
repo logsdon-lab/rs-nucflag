@@ -1,8 +1,9 @@
-use core::str;
 use coitrees::Interval;
+use core::str;
 use noodles::bam;
 use nucflag::{
-    classify::classify_misassemblies, io::{read_bed, read_cfg}
+    classify::classify_misassemblies,
+    io::{read_bed, read_cfg},
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 use pyo3_polars::PyDataFrame;
@@ -10,14 +11,19 @@ use rayon::{prelude::*, ThreadPoolBuilder};
 
 #[pyclass]
 pub struct PyNucFlagResult {
+    /// Name of contig.
     #[pyo3(get)]
     pub ctg: String,
+    /// Start of region.
     #[pyo3(get)]
     pub st: i32,
+    /// End of region.
     #[pyo3(get)]
     pub end: i32,
+    /// Coverage regions.
     #[pyo3(get)]
     pub cov: PyDataFrame,
+    /// Regions and their status.
     #[pyo3(get)]
     pub regions: PyDataFrame,
 }
@@ -46,7 +52,7 @@ fn run_nucflag(
             .into_iter()
             .flat_map(|(ctg, ref_seq)| {
                 let ctg_name: String = ctg.clone().try_into().unwrap();
-                let length: usize = ref_seq.length().get().try_into().unwrap();
+                let length: usize = ref_seq.length().get();
                 let (num, rem) = (length / window, length % window);
                 let final_start = num * window;
                 let final_itv = Interval::new(
@@ -93,15 +99,15 @@ fn run_nucflag(
                 Err(err) => {
                     eprintln!("Error: {err}");
                     None
-                },
+                }
             }
         })
         .collect())
 }
 
-/// A Python module implemented in Rust.
+/// NucFlag implemented in Rust.
 #[pymodule]
-fn rs_nucflag(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn py_nucflag(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNucFlagResult>()?;
     m.add_function(wrap_pyfunction!(run_nucflag, m)?)?;
     Ok(())

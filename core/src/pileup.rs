@@ -15,8 +15,6 @@ pub struct PileupInfo {
     pub n_t: u64,
     pub n_g: u64,
     pub n_c: u64,
-    pub n_sec: u64,
-    pub n_sup: u64,
     pub mapq: Vec<u8>,
 }
 
@@ -111,7 +109,6 @@ pub fn pileup(
     for read in query.into_iter().flatten() {
         let seq = read.sequence();
         let mapq = read.mapping_quality().unwrap().get();
-        let flags = read.flags();
         // If within region of interest.
         for (qpos, refpos, _) in get_aligned_pairs(&read)?
             .into_iter()
@@ -121,12 +118,6 @@ pub fn pileup(
             let pileup_info = &mut pileup_infos[pos];
             pileup_info.mapq.push(mapq);
 
-            if flags.is_supplementary() {
-                pileup_info.n_sup += 1
-            }
-            if flags.is_secondary() {
-                pileup_info.n_sec += 1
-            }
             let bp = seq.get(qpos).unwrap();
             match bp {
                 b'A' => pileup_info.n_a += 1,

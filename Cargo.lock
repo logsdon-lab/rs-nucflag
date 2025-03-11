@@ -543,6 +543,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b90ca2580b73ab6a1f724b76ca11ab632df820fd6040c336200d2c1df7b3c82c"
 
 [[package]]
+name = "example_cli"
+version = "0.1.0"
+dependencies = [
+ "coitrees",
+ "nucflag",
+ "polars",
+ "rayon",
+]
+
+[[package]]
 name = "eyre"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1788,6 +1798,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "py-nucflag"
+version = "0.1.0"
+dependencies = [
+ "coitrees",
+ "itertools",
+ "noodles",
+ "nucflag",
+ "polars",
+ "pyo3",
+ "pyo3-polars",
+ "rayon",
+]
+
+[[package]]
 name = "pyo3"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2000,20 +2024,6 @@ name = "regex-syntax"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
-
-[[package]]
-name = "rs_nucflag"
-version = "0.1.0"
-dependencies = [
- "coitrees",
- "itertools",
- "noodles",
- "nucflag",
- "polars",
- "pyo3",
- "pyo3-polars",
- "rayon",
-]
 
 [[package]]
 name = "rustc-demangle"
@@ -2777,22 +2787,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c"
 dependencies = [
  "bitflags",
-]
-
-[[package]]
-name = "x"
-version = "0.1.0"
-dependencies = [
- "clap",
- "coitrees",
- "eyre",
- "itertools",
- "log",
- "noodles",
- "nucflag",
- "polars",
- "rayon",
- "simple_logger",
 ]
 
 [[package]]

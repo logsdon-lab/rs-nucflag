@@ -1,36 +1,34 @@
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-};
+use std::error::Error;
 
-use cli::Cli;
+use coitrees::Interval;
 use nucflag::{
     classify::{classify_misassemblies, NucFlagResult},
-    io::{read_bed, read_cfg},
+    config::Config,
+    io::{read_bed, read_cfg, write_tsv},
 };
-use clap::Parser;
-use coitrees::Interval;
-use noodles::bam::{self};
 use rayon::{prelude::*, ThreadPoolBuilder};
 
-mod cli;
+fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    assert!(
+        args.len() == 5,
+        "Usage: .{} <bam> <bed> <cfg> <threads>",
+        args[0]
+    );
 
-// https://stackoverflow.com/questions/22583391/peak-signal-detection-in-realtime-timeseries-data
-fn main() -> eyre::Result<()> {
-    simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
-        .init()?;
+    let bam = args.get(1).expect("No bamfile provided.");
+    let bed = args.get(2);
+    let config = args.get(3);
+    let threads = args
+        .get(4)
+        .map(|arg| arg.parse::<usize>())
+        .unwrap_or(Ok(1))?;
+    let cfg: Config = read_cfg(config)?;
 
-    let cli = Cli::parse();
-    let cfg = read_cfg(cli.config)?;
-    let bedfile = cli.bed;
-    let bamfile = cli.bam;
-    let outfile = cli.misassemblies;
+    // Set number of threads.
+    ThreadPoolBuilder::new().num_threads(threads);
 
-    // Set rayon threadpool
-    ThreadPoolBuilder::new().num_threads(cli.threads);
-
-    let bed = read_bed(bedfile, |name, st, end, _| {
+    let ctg_itvs: Vec<Interval<String>> = read_bed(bed, |name, st, end, _| {
         Interval::new(
             st.try_into().unwrap(),
             end.try_into().unwrap(),
@@ -38,46 +36,19 @@ fn main() -> eyre::Result<()> {
         )
     })?;
 
-    let ctg_itvs: Vec<Interval<String>> = if bed.is_empty() {
-        // If no intervals, apply to whole genome based on header.
-        let mut bamfile = bam::io::indexed_reader::Builder::default().build_from_path(&bamfile)?;
-        let header = bamfile.read_header()?;
-
-        header
-            .reference_sequences()
-            .into_iter()
-            .map(|(ctg, ref_seq)| {
-                let ctg_name: String = ctg.clone().try_into().unwrap();
-                let length = ref_seq.length().get().try_into().unwrap();
-                Interval::new(1, length, ctg_name.clone())
-            })
-            .collect()
-    } else {
-        bed
-    };
-
     // Parallelize by contig.
     let all_regions: Vec<NucFlagResult> = ctg_itvs
         .into_par_iter()
         .map(|itv| {
             // Open the BAM file in read-only per thread.
-            classify_misassemblies(bamfile.clone(), &itv, cfg.clone(), None).unwrap()
+            classify_misassemblies(bam, &itv, cfg.clone(), None).unwrap()
         })
         .collect();
 
-    // let mut output_fh: Box<dyn Write> =
-    //     if let Some(outfile) = outfile.as_ref().and_then(|f| f.to_str()) {
-    //         log::info!("Done! Writing to {outfile}.");
-    //         let file = File::create(outfile)?;
-    //         Box::new(BufWriter::new(file))
-    //     } else {
-    //         log::info!("Done! Writing to stdout.");
-    //         let buffer = BufWriter::new(std::io::stdout());
-    //         Box::new(buffer)
-    //     };
-
-    // for res in all_regions.into_iter() {
-    // }
+    eprintln!("Done! Writing to stdout.");
+    for mut res in all_regions.into_iter() {
+        write_tsv(&mut res.cov, None::<&str>)?;
+    }
 
     Ok(())
 }

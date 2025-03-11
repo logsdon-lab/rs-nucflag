@@ -39,10 +39,7 @@ pub fn find_peaks(
 
     let lf_pileup = lf_pileup
         .with_column(col(&colname).median().alias(&median_col))
-        .with_column(
-            col(&colname).median().sqrt()
-            .alias(&stdev_col)
-        )
+        .with_column(col(&colname).median().sqrt().alias(&stdev_col))
         // Calculate zscore.
         .with_column(((col(&colname) - col(&median_col)) / col(&stdev_col)).alias(&zscore_col))
         .with_column(

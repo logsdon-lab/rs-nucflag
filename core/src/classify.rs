@@ -1,7 +1,11 @@
-use std::path::Path;
+use std::{path::Path, str::FromStr};
 
 use crate::{
-    config::Config, intervals::merge_overlapping_intervals, io::write_tsv, peak::find_peaks, pileup::{pileup, PileupInfo}
+    config::Config,
+    intervals::merge_overlapping_intervals,
+    misassembly::MisassemblyType,
+    peak::find_peaks,
+    pileup::{pileup, PileupInfo},
 };
 use coitrees::{GenericInterval, Interval};
 use itertools::{multizip, Itertools};
@@ -9,9 +13,7 @@ use noodles::bam::{self};
 use polars::prelude::*;
 
 fn merge_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result<DataFrame> {
-    let (mut first_cnts, mut second_cnts, mut mapq_cnts, mut sec_cnts, mut sup_cnts) = (
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
+    let (mut first_cnts, mut second_cnts, mut mapq_cnts) = (
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
@@ -20,16 +22,12 @@ fn merge_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result
         first_cnts.push(p.first());
         second_cnts.push(p.second());
         mapq_cnts.push(p.median_mapq().unwrap_or(0));
-        sec_cnts.push(p.n_sec);
-        sup_cnts.push(p.n_sup);
     }
     DataFrame::new(vec![
         Column::new("pos".into(), st..end + 1),
         Column::new("first".into(), first_cnts),
         Column::new("second".into(), second_cnts),
         Column::new("mapq".into(), mapq_cnts),
-        Column::new("sec".into(), sec_cnts),
-        Column::new("sup".into(), sup_cnts),
     ])
     .map_err(Into::into)
 }
@@ -39,7 +37,7 @@ fn merge_misassemblies(
     bp_merge: i32,
     bp_filter: i32,
     merge_across_type: bool,
-) -> eyre::Result<DataFrame> {
+) -> eyre::Result<LazyFrame> {
     let mut lf_itvs_all = df_itvs.clone().lazy();
     let df_misasm_itvs = df_itvs
         .lazy()
@@ -81,7 +79,6 @@ fn merge_misassemblies(
             |itv_1, itv_2| {
                 let largest_itv =
                     std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| itv_1.len().cmp(&itv_2.len()));
-
                 (
                     largest_itv.metadata.0,
                     (itv_1.metadata.1 + itv_2.metadata.1) / 2,
@@ -107,7 +104,7 @@ fn merge_misassemblies(
         );
     }
 
-    lf_itvs_all
+    Ok(lf_itvs_all
         // First reduce interval groups to min/max.
         .with_column(col("status").rle_id().alias("group"))
         .group_by(["group"])
@@ -134,9 +131,7 @@ fn merge_misassemblies(
             col("status").first(),
         ])
         .sort(["st"], Default::default())
-        .select([col("st"), col("end"), col("cov"), col("status")])
-        .collect()
-        .map_err(Into::into)
+        .select([col("st"), col("end"), col("status"), col("cov")]))
 }
 
 #[derive(Debug)]
@@ -152,11 +147,11 @@ pub struct NucFlagResult {
 /// # Arguments
 /// * `bamfile`: Input BAM file path. Should be indexed and filtered to only primary alignments (?).  
 /// * `itv`: Interval to check.
-/// * `cfg`: Output BED file with misassemblies.
-/// * `avg_cov`: Average coverage of contig.
+/// * `cfg`: Peak-calling configuration.
+/// * `avg_cov`: Average coverage of assembly. Used only for classifying false-duplications. Defaults to contig coverage.
 ///
 /// # Returns
-/// * `NucFlagResult`
+/// * [`NucFlagResult`]
 pub fn classify_misassemblies(
     bamfile: impl AsRef<Path>,
     itv: &Interval<String>,
@@ -218,7 +213,7 @@ pub fn classify_misassemblies(
             .alias("het_ratio"),
         );
 
-    let mut df_pileup = lf_pileup
+    let df_pileup = lf_pileup
         .with_column(
             // collapse_other
             // Regions with higher than expected het ratio.
@@ -241,7 +236,7 @@ pub fn classify_misassemblies(
             .when(
                 col("first_peak")
                     .eq(lit("high"))
-                    .and(col("second_peak").eq(lit("null")))
+                    .and(col("second_peak").eq(lit("null"))),
             )
             .then(lit("collapse"))
             .otherwise(col("status"))
@@ -268,12 +263,14 @@ pub fn classify_misassemblies(
                 .otherwise(col("status"))
                 .alias("status"),
         ])
+        .with_column(lit(ctg.clone()).alias("chrom"))
         .select([
+            col("chrom"),
             col("pos"),
             col("first"),
             col("second"),
-            col("first_median"),
-            col("second_median"),
+            col("first_zscore"),
+            col("second_zscore"),
             col("mapq"),
             col("status"),
         ])
@@ -305,14 +302,49 @@ pub fn classify_misassemblies(
     log::info!("Merging intervals in {ctg}:{st}-{end}.");
     let df_itvs_final =
         merge_misassemblies(df_itvs, bp_merge, bp_filter, cfg.general.merge_across_type)?
-            .lazy()
-            .with_column(lit(ctg.clone()).alias("ctg"))
+            .with_columns([
+                lit(ctg.clone()).alias("chrom"),
+                col("st").alias("thickStart"),
+                col("end").alias("thickEnd"),
+                lit("+").alias("strand"),
+                // Convert statuses into colors.
+                col("status").map(
+                    |statuses| {
+                        Ok(Some(Column::new(
+                            "itemRgb".into(),
+                            statuses
+                                .str()?
+                                .iter()
+                                .flatten()
+                                .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
+                                .collect::<Vec<&str>>(),
+                        )))
+                    },
+                    SpecialEq::same_type(),
+                ).alias("itemRgb"),
+            ])
+            .rename(
+                ["st", "end", "status", "cov"],
+                ["chromStart", "chromEnd", "name", "score"],
+                true,
+            )
+            .select([
+                col("chrom"),
+                col("chromStart"),
+                col("chromEnd"),
+                col("name"),
+                col("score"),
+                col("strand"),
+                col("thickStart"),
+                col("thickEnd"),
+                col("itemRgb"),
+            ])
             .collect()?;
 
     let (n_misassemblies, _) = df_itvs_final
-        .select(["status"])?
+        .select(["name"])?
         .lazy()
-        .filter(col("status").neq(lit("good")))
+        .filter(col("name").neq(lit("good")))
         .collect()?
         .shape();
 

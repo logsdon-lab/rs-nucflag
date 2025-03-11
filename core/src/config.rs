@@ -32,7 +32,7 @@ impl Default for GeneralConfig {
             min_bp: 1,
             merge_across_type: false,
             window: 10_000_000,
-            baseline_cov: None
+            baseline_cov: None,
         }
     }
 }

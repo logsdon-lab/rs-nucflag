@@ -13,12 +13,12 @@ pub enum MisassemblyType {
 impl MisassemblyType {
     pub fn item_rgb(&self) -> &'static str {
         match self {
-            MisassemblyType::CollapseOther => "yellow",
-            MisassemblyType::CollapseVar => "blue",
-            MisassemblyType::Collapse => "green",
-            MisassemblyType::Misjoin => "orange",
-            MisassemblyType::FalseDupe => "purple",
-            MisassemblyType::Null => "null",
+            MisassemblyType::CollapseOther => "255,255,0",
+            MisassemblyType::CollapseVar => "0,0,255",
+            MisassemblyType::Collapse => "0,255,0",
+            MisassemblyType::Misjoin => "255,165,0",
+            MisassemblyType::FalseDupe => "128,0,128",
+            MisassemblyType::Null => "0,0,0",
         }
     }
 }
