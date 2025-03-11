@@ -1,5 +1,12 @@
-Simple example script to run nucflag.
+# Examples
+Scripts to run nucflag from the command-line.
 
+## Rust
 ```bash
-cargo build --release -- -i input.bam -b input.bed -c config.toml -t 1
+cargo run --release -- input.bam input.bed config.toml 1
+```
+
+## Python
+```bash
+python scripts/example.py input.bam input.bed config.toml 1
 ```
