@@ -76,3 +76,31 @@ pub fn find_peaks(
         true,
     ))
 }
+
+
+#[cfg(test)]
+mod test {
+    use polars::prelude::*;
+
+    use super::find_peaks;
+
+    #[test]
+    fn test_find_peaks() {
+        let df = df!(
+            "pos" => [0, 1, 2, 3, 4],
+            "first" => [15, 60, 15, 0, 15],
+        ).unwrap();
+
+        let df_peaks = find_peaks(df, 3.4, 3.4, None).unwrap().collect().unwrap();
+        let peaks = df_peaks.column("first_peak").unwrap();
+        assert_eq!(
+            vec!["null", "high", "null", "low", "null"],
+            peaks.str().unwrap().iter().flatten().collect::<Vec<&str>>()
+        );
+    }
+
+    #[test]
+    fn test_find_peaks_filter_perc() {
+        todo!()
+    }
+}

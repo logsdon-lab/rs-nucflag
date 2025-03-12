@@ -207,7 +207,7 @@ fn classify_peaks(
             when(
                 col("first_peak")
                     .eq(lit("high"))
-                    .and(col("status").eq(lit("collapse_other"))),
+                    .and(col("second_peak").eq(lit("high"))),
             )
             .then(lit("collapse_var"))
             // collapse

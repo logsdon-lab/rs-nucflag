@@ -23,12 +23,6 @@ pub struct PileupSummary {
     pub pileups: Vec<PileupInfo>,
 }
 
-pub struct DepthSummary {
-    pub region: Region,
-    pub avg_depth: u64,
-    // pub depth: Vec<u16>,
-}
-
 impl PileupInfo {
     pub fn median_mapq(&self) -> Option<u8> {
         self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
