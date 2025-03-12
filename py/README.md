@@ -1,2 +1,2 @@
-# rs_nucflag
+# py_nucflag
 Python library for `nucflag`.

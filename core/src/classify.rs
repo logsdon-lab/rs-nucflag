@@ -1,13 +1,9 @@
 use std::{path::Path, str::FromStr};
 
 use crate::{
-    config::Config,
-    intervals::merge_overlapping_intervals,
-    misassembly::MisassemblyType,
-    peak::find_peaks,
-    pileup::{pileup, PileupInfo},
+    config::Config, intervals::merge_overlapping_intervals, misassembly::MisassemblyType, peak::find_peaks, pileup::{pileup, PileupInfo}
 };
-use coitrees::{GenericInterval, Interval};
+use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
 use itertools::{multizip, Itertools};
 use noodles::bam::{self};
 use polars::prelude::*;
@@ -38,7 +34,14 @@ fn merge_misassemblies(
     bp_filter: i32,
     merge_across_type: bool,
 ) -> eyre::Result<LazyFrame> {
-    let mut lf_itvs_all = df_itvs.clone().lazy();
+    let itvs_all: Vec<(u64, u64, u8, String)> = multizip((
+        df_itvs.column("st")?.u64()?.iter().flatten(),
+        df_itvs.column("end")?.u64()?.iter().flatten(),
+        df_itvs.column("cov")?.u8()?.iter().flatten(),
+        df_itvs.column("status")?.str()?.iter().flatten().map(String::from),
+    ))
+    .collect();
+
     let df_misasm_itvs = df_itvs
         .lazy()
         .filter(col("status").neq(lit("good")))
@@ -73,9 +76,11 @@ fn merge_misassemblies(
     });
 
     // Merge overlapping intervals OVER status type choosing largest misassembly type.
-    let final_misasm_itvs = if merge_across_type {
+    let final_misasm_itvs: COITree<(&str, u8), usize> = COITree::new(&if merge_across_type {
         merge_overlapping_intervals(
-            merged_misasm_itvs.into_iter(),
+            merged_misasm_itvs.into_iter().map(|itv| {
+                Interval::new(itv.first - bp_merge, itv.last + bp_merge, itv.metadata)
+            }),
             |itv_1, itv_2| {
                 let largest_itv =
                     std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| itv_1.len().cmp(&itv_2.len()));
@@ -84,27 +89,66 @@ fn merge_misassemblies(
                     (itv_1.metadata.1 + itv_2.metadata.1) / 2,
                 )
             },
-            |itv| itv,
+            |itv: Interval<(&str, u8)>| {
+                Interval::new(
+                    itv.first + bp_merge,
+                    itv.last - bp_merge,
+                    itv.metadata,
+                )
+            },
         )
     } else {
         merged_misasm_itvs
-    };
+    });
 
-    // Replace intervals between good.
-    for itv in final_misasm_itvs {
-        lf_itvs_all = lf_itvs_all.with_column(
-            when(
-                col("st")
-                    .gt_eq(lit(itv.first))
-                    .and(col("end").lt_eq(itv.last)),
-            )
-            .then(lit(itv.metadata.0))
-            .otherwise(col("status"))
-            .alias("status"),
-        );
+    // Convert good columns to misassembly types.
+    let mut sts = Vec::with_capacity(itvs_all.len());
+    let mut ends = Vec::with_capacity(itvs_all.len());
+    let mut covs = Vec::with_capacity(itvs_all.len());
+    let mut statuses = Vec::with_capacity(itvs_all.len());
+    for (st, end, cov, status) in itvs_all {
+        let st = st.try_into()?;
+        let end = end.try_into()?;
+        let mut largest_ovl: Option<(&str, i32)> = None;
+        final_misasm_itvs.query(st, end, |ovl_itv| {
+            // Fully contained.
+            let contains_itv = ovl_itv.first <= st && ovl_itv.last >= end;
+            match (largest_ovl, contains_itv) {
+                (None, true) => {
+                    largest_ovl = Some((ovl_itv.metadata.0, ovl_itv.len()))
+                },
+                (Some((_, other_itv_len)), true) => {
+                    // Take larger overlap as status
+                    if ovl_itv.len() > other_itv_len {
+                        largest_ovl = Some((ovl_itv.metadata.0, ovl_itv.len()))
+                    }
+                },
+                _ => (),
+            }
+        });
+
+        sts.push(st);
+        ends.push(end);
+        covs.push(cov);
+
+        let Some((new_status, _)) = largest_ovl else {
+            statuses.push(status);
+            continue;
+        };
+ 
+        statuses.push(new_status.to_owned());
     }
+    let df_itvs_all = DataFrame::new(
+        vec![
+            Column::new("st".into(), sts),
+            Column::new("end".into(), ends),
+            Column::new("cov".into(), covs),
+            Column::new("status".into(), statuses),
+        ]
+    )?;
 
-    Ok(lf_itvs_all
+    Ok(df_itvs_all
+        .lazy()
         // First reduce interval groups to min/max.
         .with_column(col("status").rle_id().alias("group"))
         .group_by(["group"])

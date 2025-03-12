@@ -27,7 +27,7 @@ pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Re
 
 #[allow(unused)]
 pub fn write_itvs<'a, T: Debug + Clone + 'a>(
-    itvs: impl Iterator<Item = &'a Interval<T>>,
+    itvs: impl Iterator<Item = Interval<&'a T>>,
     path: Option<impl AsRef<Path>>,
 ) -> eyre::Result<()> {
     let mut file: Box<dyn Write> = if let Some(path) = path {
