@@ -16,25 +16,25 @@ pub struct GeneralConfig {
     /// Number of bases to merge intervals.
     pub bp_merge: usize,
     /// Minimum misassembly size.
-    pub min_bp: usize,
+    pub bp_min: usize,
+    /// Window in base pairs. Only used if no BED file is provided.
+    pub bp_window: usize,
+    /// Baseline coverage used for false-duplication classification. Defaults to average coverage of region.
+    pub cov: Option<u64>,
+    /// Store coverage data. Toggle off to reduce memory usage.
+    pub store_coverage: bool,
     /// Merge across misassembly type.
     pub merge_across_type: bool,
-    /// Window in base pairs. Only used if no BED file is provided.
-    pub window: usize,
-    /// Baseline coverage used for false-duplication classification. Defaults to average coverage of region.
-    pub baseline_cov: Option<u64>,
-    /// Store coverage data. Toggle off to reduce memory usage.
-    pub store_coverage: bool
 }
 
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             bp_merge: 5000,
-            min_bp: 1,
+            bp_min: 1,
+            bp_window: 10_000_000,
             merge_across_type: false,
-            window: 10_000_000,
-            baseline_cov: None,
+            cov: None,
             store_coverage: true
         }
     }
@@ -64,17 +64,17 @@ pub struct SecondConfig {
     /// Number of z-scores above the mean to flag.
     pub n_zscores_high: f32,
     /// Threshold to remove background noise signal will have u=0.
-    pub min_perc: f32,
+    pub perc_min: f32,
     /// Ratio used to split hets from small collapses.
-    pub thr_het_ratio: f32,
+    pub ratio_het: f32,
 }
 
 impl Default for SecondConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.4,
-            min_perc: 0.25,
-            thr_het_ratio: 0.2,
+            perc_min: 0.25,
+            ratio_het: 0.2,
         }
     }
 }

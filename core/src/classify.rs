@@ -196,7 +196,7 @@ fn classify_peaks(
         .with_column(
             // collapse_other
             // Regions with higher than expected het ratio.
-            when(col("het_ratio").gt_eq(lit(cfg.second.thr_het_ratio)))
+            when(col("het_ratio").gt_eq(lit(cfg.second.ratio_het)))
                 .then(lit("collapse_other"))
                 .otherwise(lit("good"))
                 .alias("status"),
@@ -327,7 +327,7 @@ pub fn nucflag(
         df_raw_pileup.select(["pos", "second"])?,
         cfg.second.n_zscores_high,
         cfg.second.n_zscores_high,
-        Some(cfg.second.min_perc),
+        Some(cfg.second.perc_min),
     )?;
 
     let lf_pileup = lf_first_peaks
@@ -354,7 +354,7 @@ pub fn nucflag(
 
     let (df_itvs, df_pileup) = classify_peaks(lf_pileup, &ctg, &cfg, median_cov)?;
 
-    let bp_filter: i32 = cfg.general.min_bp.try_into()?;
+    let bp_filter: i32 = cfg.general.bp_min.try_into()?;
     let bp_merge: i32 = cfg.general.bp_merge.try_into()?;
 
     // Then merge and filter.
