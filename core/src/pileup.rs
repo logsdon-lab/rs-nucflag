@@ -1,7 +1,6 @@
 use std::fs::File;
 
 use coitrees::{GenericInterval, Interval};
-use eyre::ContextCompat;
 use itertools::Itertools;
 use noodles::{
     bam,
@@ -27,13 +26,13 @@ impl PileupInfo {
     pub fn median_mapq(&self) -> Option<u8> {
         self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
     }
-    #[allow(unused)]
     pub fn mean_mapq(&self) -> eyre::Result<u8> {
-        self.mapq
+        Ok(self
+            .mapq
             .iter()
             .sum::<u8>()
-            .checked_sub(TryInto::<u8>::try_into(self.mapq.len())?)
-            .context("No mapq.")
+            .checked_div(TryInto::<u8>::try_into(self.mapq.len())?)
+            .unwrap_or(0))
     }
     pub fn counts(&self) -> impl Iterator<Item = u64> {
         [self.n_a, self.n_t, self.n_g, self.n_c]

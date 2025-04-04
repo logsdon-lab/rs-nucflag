@@ -35,7 +35,7 @@ impl Default for GeneralConfig {
             bp_window: 10_000_000,
             merge_across_type: false,
             cov: None,
-            store_coverage: true
+            store_coverage: true,
         }
     }
 }
@@ -47,6 +47,8 @@ pub struct FirstConfig {
     pub n_zscores_high: f32,
     /// Number of z-scores below the mean to be considered a misassembly.
     pub n_zscores_low: f32,
+    /// Number of z-scores below the mean to be considered a false-dupe.
+    pub n_zscores_false_dupe: f32,
 }
 
 impl Default for FirstConfig {
@@ -54,6 +56,7 @@ impl Default for FirstConfig {
         Self {
             n_zscores_high: 4.0,
             n_zscores_low: 4.0,
+            n_zscores_false_dupe: 2.0,
         }
     }
 }
@@ -63,8 +66,6 @@ impl Default for FirstConfig {
 pub struct SecondConfig {
     /// Number of z-scores above the mean to flag.
     pub n_zscores_high: f32,
-    /// Threshold to remove background noise signal will have u=0.
-    pub perc_min: f32,
     /// Ratio used to split hets from small collapses.
     pub ratio_het: f32,
 }
@@ -73,7 +74,6 @@ impl Default for SecondConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.4,
-            perc_min: 0.25,
             ratio_het: 0.2,
         }
     }

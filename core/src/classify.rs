@@ -1,7 +1,11 @@
 use std::{path::Path, str::FromStr};
 
 use crate::{
-    config::Config, intervals::merge_overlapping_intervals, misassembly::MisassemblyType, peak::find_peaks, pileup::{pileup, PileupInfo}
+    config::Config,
+    intervals::merge_overlapping_intervals,
+    misassembly::MisassemblyType,
+    peak::find_peaks,
+    pileup::{pileup, PileupInfo},
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
 use itertools::{multizip, Itertools};
@@ -17,7 +21,7 @@ fn merge_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result
     for p in pileup.into_iter() {
         first_cnts.push(p.first());
         second_cnts.push(p.second());
-        mapq_cnts.push(p.median_mapq().unwrap_or(0));
+        mapq_cnts.push(p.mean_mapq().unwrap_or(0));
     }
     DataFrame::new(vec![
         Column::new("pos".into(), st..end + 1),
@@ -38,7 +42,12 @@ fn merge_misassemblies(
         df_itvs.column("st")?.u64()?.iter().flatten(),
         df_itvs.column("end")?.u64()?.iter().flatten(),
         df_itvs.column("cov")?.u8()?.iter().flatten(),
-        df_itvs.column("status")?.str()?.iter().flatten().map(String::from),
+        df_itvs
+            .column("status")?
+            .str()?
+            .iter()
+            .flatten()
+            .map(String::from),
     ))
     .collect();
 
@@ -78,9 +87,9 @@ fn merge_misassemblies(
     // Merge overlapping intervals OVER status type choosing largest misassembly type.
     let final_misasm_itvs: COITree<(&str, u8), usize> = COITree::new(&if merge_across_type {
         merge_overlapping_intervals(
-            merged_misasm_itvs.into_iter().map(|itv| {
-                Interval::new(itv.first - bp_merge, itv.last + bp_merge, itv.metadata)
-            }),
+            merged_misasm_itvs
+                .into_iter()
+                .map(|itv| Interval::new(itv.first - bp_merge, itv.last + bp_merge, itv.metadata)),
             |itv_1, itv_2| {
                 let largest_itv =
                     std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| itv_1.len().cmp(&itv_2.len()));
@@ -90,11 +99,7 @@ fn merge_misassemblies(
                 )
             },
             |itv: Interval<(&str, u8)>| {
-                Interval::new(
-                    itv.first + bp_merge,
-                    itv.last - bp_merge,
-                    itv.metadata,
-                )
+                Interval::new(itv.first + bp_merge, itv.last - bp_merge, itv.metadata)
             },
         )
     } else {
@@ -114,15 +119,13 @@ fn merge_misassemblies(
             // Fully contained.
             let contains_itv = ovl_itv.first <= st && ovl_itv.last >= end;
             match (largest_ovl, contains_itv) {
-                (None, true) => {
-                    largest_ovl = Some((ovl_itv.metadata.0, ovl_itv.len()))
-                },
+                (None, true) => largest_ovl = Some((ovl_itv.metadata.0, ovl_itv.len())),
                 (Some((_, other_itv_len)), true) => {
                     // Take larger overlap as status
                     if ovl_itv.len() > other_itv_len {
                         largest_ovl = Some((ovl_itv.metadata.0, ovl_itv.len()))
                     }
-                },
+                }
                 _ => (),
             }
         });
@@ -135,17 +138,15 @@ fn merge_misassemblies(
             statuses.push(status);
             continue;
         };
- 
+
         statuses.push(new_status.to_owned());
     }
-    let df_itvs_all = DataFrame::new(
-        vec![
-            Column::new("st".into(), sts),
-            Column::new("end".into(), ends),
-            Column::new("cov".into(), covs),
-            Column::new("status".into(), statuses),
-        ]
-    )?;
+    let df_itvs_all = DataFrame::new(vec![
+        Column::new("st".into(), sts),
+        Column::new("end".into(), ends),
+        Column::new("cov".into(), covs),
+        Column::new("status".into(), statuses),
+    ])?;
 
     Ok(df_itvs_all
         .lazy()
@@ -190,58 +191,59 @@ fn classify_peaks(
     lf_pileup: LazyFrame,
     ctg: &str,
     cfg: &Config,
-    median_cov: u64
+    median_cov: u64,
 ) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
     let df_pileup = lf_pileup
         .with_column(
-            // collapse_other
-            // Regions with higher than expected het ratio.
-            when(col("het_ratio").gt_eq(lit(cfg.second.ratio_het)))
-                .then(lit("collapse_other"))
-                .otherwise(lit("good"))
-                .alias("status"),
-        )
-        .with_column(
             // collapse_var
-            // Regions with high coverage and a high coverage of another variant.
+            // Regions with at least double the median coverage and a high coverage of another variant.
             when(
                 col("first_peak")
                     .eq(lit("high"))
+                    .and(
+                        col("first")
+                        .gt_eq(lit(median_cov * 2))
+                    )
                     .and(col("second_peak").eq(lit("high"))),
             )
             .then(lit("collapse_var"))
+            .when(
+                col("het_ratio")
+                    .gt_eq(lit(cfg.second.ratio_het))
+                    .and(col("second_peak").eq(lit("high"))),
+            )
+            .then(lit("low_quality"))
             // collapse
             // Perfect collapse of repetitive region with few to no secondary variants.
             .when(
                 col("first_peak")
                     .eq(lit("high"))
+                    .and(
+                        col("first")
+                        .gt_eq(lit(median_cov * 2))
+                    )
                     .and(col("second_peak").eq(lit("null"))),
             )
             .then(lit("collapse"))
-            .otherwise(col("status"))
-            .alias("status"),
-        )
-        .with_columns([
             // misjoin
             // Regions with either:
             // * Zero coverage. Might be scaffold or misjoined contig. Without reference, not known.
             // * A dip in coverage with a high het ratio.
-            when(col("first").eq(lit(0)).or(col("first_peak").eq(lit("low"))))
-                .then(lit("misjoin"))
-                // false_dupe
-                // Region with half of the expected coverage, n-zscores less than the global mean, and zero-mapq due to multi-mapping.
-                // Either a duplicated contig or duplicated region.
-                .when(
-                    col("first")
-                        .lt_eq(lit(median_cov / 2))
-                        // // Needs to scale with coverage.
-                        // .and(col("first_all_zscore"))
-                        .and(col("mapq").eq(lit(0))),
-                )
-                .then(lit("false_dupe"))
-                .otherwise(col("status"))
-                .alias("status"),
-        ])
+            .when(col("first").eq(lit(0)).or(col("first_peak").eq(lit("low"))))
+            .then(lit("misjoin"))
+            // false_dupe
+            // Region with half of the expected coverage, n-zscores less than the global mean, and zero-mapq due to multi-mapping.
+            // Either a duplicated contig, duplicated region, or an SV (large insertion of repetive region).
+            .when(
+                col("first")
+                    .lt_eq(lit(median_cov / 2))
+                    .and(col("first_zscore").lt_eq(lit(-cfg.first.n_zscores_false_dupe)))
+                    .and(col("mapq").eq(lit(0))),
+            )
+            .then(lit("false_dupe"))
+            .otherwise(lit("good"))
+            .alias("status"),
+        )
         .with_column(lit(ctg).alias("chrom"))
         .select([
             col("chrom"),
@@ -273,10 +275,8 @@ fn classify_peaks(
         ])
         .drop([col("group")])
         .collect()?;
-    
-    Ok(
-        (df_itvs, cfg.general.store_coverage.then_some(df_pileup))
-    )
+
+    Ok((df_itvs, cfg.general.store_coverage.then_some(df_pileup)))
 }
 
 /// Detect misasemblies from alignment read coverage using per-base read coverage.
@@ -321,13 +321,11 @@ pub fn nucflag(
         df_raw_pileup.select(["pos", "first"])?,
         cfg.first.n_zscores_low,
         cfg.first.n_zscores_high,
-        None,
     )?;
     let lf_second_peaks = find_peaks(
         df_raw_pileup.select(["pos", "second"])?,
         cfg.second.n_zscores_high,
         cfg.second.n_zscores_high,
-        Some(cfg.second.perc_min),
     )?;
 
     let lf_pileup = lf_first_peaks
@@ -367,20 +365,22 @@ pub fn nucflag(
                 col("end").alias("thickEnd"),
                 lit("+").alias("strand"),
                 // Convert statuses into colors.
-                col("status").map(
-                    |statuses| {
-                        Ok(Some(Column::new(
-                            "itemRgb".into(),
-                            statuses
-                                .str()?
-                                .iter()
-                                .flatten()
-                                .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
-                                .collect::<Vec<&str>>(),
-                        )))
-                    },
-                    SpecialEq::same_type(),
-                ).alias("itemRgb"),
+                col("status")
+                    .map(
+                        |statuses| {
+                            Ok(Some(Column::new(
+                                "itemRgb".into(),
+                                statuses
+                                    .str()?
+                                    .iter()
+                                    .flatten()
+                                    .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
+                                    .collect::<Vec<&str>>(),
+                            )))
+                        },
+                        SpecialEq::same_type(),
+                    )
+                    .alias("itemRgb"),
             ])
             .rename(
                 ["st", "end", "status", "cov"],

@@ -7,7 +7,6 @@ pub fn find_peaks(
     df_pileup: DataFrame,
     n_zscore_low: f32,
     n_zscore_high: f32,
-    min_perc: Option<f32>,
 ) -> eyre::Result<LazyFrame> {
     assert_eq!(
         df_pileup.get_column_names().len(),
@@ -38,9 +37,15 @@ pub fn find_peaks(
     let zscore_col = format!("{colname}_zscore");
 
     let lf_pileup = lf_pileup
+        // Calculate median
         .with_column(col(&colname).median().alias(&median_col))
-        .with_column(col(&colname).median().sqrt().alias(&stdev_col))
-        // Calculate zscore.
+        // Calculate adjusted z-score from MAD
+        // https://www.statisticshowto.com/median-absolute-deviation/
+        // https://www.ibm.com/docs/en/cognos-analytics/11.1.x?topic=terms-modified-z-score
+        // https://www.statology.org/modified-z-score/
+        .with_column(
+            ((col(&colname) - col(&median_col)).abs().median() * lit(1.486)).alias(&stdev_col),
+        )
         .with_column(((col(&colname) - col(&median_col)) / col(&stdev_col)).alias(&zscore_col))
         .with_column(
             when(col(&zscore_col).gt(lit(n_zscore_high)))
@@ -51,32 +56,12 @@ pub fn find_peaks(
                 .alias(&peak_col),
         );
 
-    // Filter by percentile if added.
-    let lf_pileup = if let Some(min_perc) = min_perc {
-        lf_pileup
-            .with_column(
-                col(&colname)
-                    .rank(RankOptions::default(), None)
-                    .alias("rank"),
-            )
-            // Filter positions under threshold percentile
-            // Removes noise and take only most prominent peaks.
-            .with_column(
-                when((col("rank") / col("rank").max()).gt(lit(min_perc)))
-                    .then(col(&peak_col))
-                    .otherwise(lit("null")),
-            )
-    } else {
-        lf_pileup
-    };
-
     // Go back to u64
     Ok(lf_pileup.cast(
         PlHashMap::from_iter([(colname.as_str(), DataType::UInt64)]),
         true,
     ))
 }
-
 
 #[cfg(test)]
 mod test {
@@ -89,9 +74,10 @@ mod test {
         let df = df!(
             "pos" => [0, 1, 2, 3, 4],
             "first" => [15, 60, 15, 0, 15],
-        ).unwrap();
+        )
+        .unwrap();
 
-        let df_peaks = find_peaks(df, 3.4, 3.4, None).unwrap().collect().unwrap();
+        let df_peaks = find_peaks(df, 3.4, 3.4).unwrap().collect().unwrap();
         let peaks = df_peaks.column("first_peak").unwrap();
         assert_eq!(
             vec!["null", "high", "null", "low", "null"],
