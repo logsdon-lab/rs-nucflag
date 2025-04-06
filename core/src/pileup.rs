@@ -8,15 +8,17 @@ use noodles::{
     sam::alignment::record::cigar::op::Kind,
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PileupInfo {
-    pub n_a: u64,
-    pub n_t: u64,
-    pub n_g: u64,
-    pub n_c: u64,
+    pub n_cov: u64,
+    pub n_mismatch: u64,
+    pub n_indel: u64,
+    pub n_supp: u64,
+    pub n_softclip: u64,
     pub mapq: Vec<u8>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct PileupSummary {
     pub region: Region,
     pub pileups: Vec<PileupInfo>,
@@ -24,30 +26,29 @@ pub struct PileupSummary {
 
 impl PileupInfo {
     pub fn median_mapq(&self) -> Option<u8> {
-        self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
+        let length = self.mapq.len();
+        let midpt = length / 2;
+        if length % 2 == 0 {
+            Some(
+                self.mapq
+                    .iter()
+                    .sorted()
+                    .get(midpt..=midpt + 1)
+                    .sum::<u8>()
+                    .div_ceil(2),
+            )
+        } else {
+            self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
+        }
     }
     pub fn mean_mapq(&self) -> eyre::Result<u8> {
-        Ok(self
-            .mapq
-            .iter()
-            .sum::<u8>()
-            .checked_div(TryInto::<u8>::try_into(self.mapq.len())?)
-            .unwrap_or(0))
-    }
-    pub fn counts(&self) -> impl Iterator<Item = u64> {
-        [self.n_a, self.n_t, self.n_g, self.n_c]
-            .into_iter()
-            .sorted_by(|a, b| a.cmp(b))
-            .rev()
-    }
-    pub fn first(&self) -> u64 {
-        // Will never be empty so unwrap safe.
-        self.counts().next().unwrap()
-    }
-
-    pub fn second(&self) -> u64 {
-        // Will never be empty so unwrap safe.
-        self.counts().nth(1).unwrap()
+        let Some(length) = TryInto::<u8>::try_into(self.mapq.len())
+            .ok()
+            .filter(|l| *l > 0)
+        else {
+            return Ok(0);
+        };
+        Ok(self.mapq.iter().sum::<u8>().div_ceil(length))
     }
 }
 
@@ -67,8 +68,21 @@ pub fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, 
                 }
                 pos += l
             }
-            Kind::Insertion | Kind::SoftClip | Kind::Pad => qpos += l,
-            Kind::Deletion => pos += l,
+            Kind::Pad => {
+                qpos += l;
+                continue;
+            }
+            // Track indels and softclips.
+            Kind::Insertion | Kind::SoftClip => {
+                pairs.push((qpos, pos, op));
+                qpos += l
+            }
+            Kind::Deletion => {
+                for i in pos..(pos + l) {
+                    pairs.push((qpos, i, op));
+                }
+                pos += l
+            }
             Kind::HardClip => {
                 continue;
             }
@@ -82,7 +96,7 @@ pub fn pileup(
     bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
     itv: &Interval<String>,
 ) -> eyre::Result<PileupSummary> {
-    let st: usize = itv.first.try_into()?;
+    let st = TryInto::<usize>::try_into(itv.first)?.clamp(1, usize::MAX);
     let end: usize = itv.last.try_into()?;
     let length: usize = itv.len().try_into()?;
 
@@ -100,10 +114,9 @@ pub fn pileup(
 
     log::info!("Generating pileup over {}:{st}-{end}.", region.name());
     for read in query.into_iter().flatten() {
-        let seq = read.sequence();
         let mapq = read.mapping_quality().unwrap().get();
         // If within region of interest.
-        for (qpos, refpos, _) in get_aligned_pairs(&read)?
+        for (_qpos, refpos, kind) in get_aligned_pairs(&read)?
             .into_iter()
             .filter(|(_, refpos, _)| *refpos >= st && *refpos <= end)
         {
@@ -111,14 +124,25 @@ pub fn pileup(
             let pileup_info = &mut pileup_infos[pos];
             pileup_info.mapq.push(mapq);
 
-            let bp = seq.get(qpos).unwrap();
-            match bp {
-                b'A' => pileup_info.n_a += 1,
-                b'C' => pileup_info.n_c += 1,
-                b'G' => pileup_info.n_g += 1,
-                b'T' => pileup_info.n_t += 1,
-                b'N' => (),
-                _ => log::debug!("Character not recognized at pos {pos}: {bp:?}"),
+            match kind {
+                Kind::Deletion | Kind::Insertion => {
+                    pileup_info.n_indel += 1;
+                    continue;
+                }
+                Kind::SoftClip => {
+                    pileup_info.n_softclip += 1;
+                    continue;
+                }
+                Kind::SequenceMismatch => {
+                    pileup_info.n_mismatch += 1;
+                }
+                _ => (),
+            }
+
+            pileup_info.n_cov += 1;
+
+            if read.flags().is_supplementary() {
+                pileup_info.n_supp += 1
             }
         }
     }
@@ -128,4 +152,83 @@ pub fn pileup(
         region,
         pileups: pileup_infos,
     })
+}
+
+#[cfg(test)]
+mod test {
+    use crate::pileup::{PileupInfo, PileupSummary};
+    use noodles::{
+        bam,
+        core::{Position, Region},
+    };
+
+    use super::pileup;
+
+    #[test]
+    fn test_pileup() {
+        let mut bam = bam::io::indexed_reader::Builder::default()
+            .build_from_path("test/pileup/test.bam")
+            .unwrap();
+        let itv = coitrees::Interval::new(
+            9667238,
+            9667240,
+            "K1463_2281_chr15_contig-0000423".to_owned(),
+        );
+        let res = pileup(&mut bam, &itv).unwrap();
+        assert_eq!(
+            res,
+            PileupSummary {
+                region: Region::new(
+                    "K1463_2281_chr15_contig-0000423",
+                    Position::new(9667238).unwrap()..=Position::new(9667240).unwrap()
+                ),
+                pileups: [
+                    PileupInfo {
+                        n_cov: 41,
+                        n_mismatch: 0,
+                        n_indel: 40,
+                        n_supp: 0,
+                        n_softclip: 0,
+                        mapq: [
+                            60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 18, 18, 34, 34, 60, 60, 35, 35,
+                            60, 60, 60, 60, 33, 33, 30, 30, 60, 60, 33, 33, 34, 34, 33, 33, 31, 31,
+                            33, 33, 36, 36, 32, 32, 32, 32, 60, 60, 35, 35, 33, 33, 36, 36, 31, 35,
+                            35, 35, 35, 33, 33, 33, 33, 34, 34, 35, 35, 60, 60, 33, 33, 60, 60, 60,
+                            60, 60, 60, 60, 60, 60, 60, 60, 60
+                        ]
+                        .to_vec()
+                    },
+                    PileupInfo {
+                        n_cov: 41,
+                        n_mismatch: 0,
+                        n_indel: 0,
+                        n_supp: 0,
+                        n_softclip: 0,
+                        mapq: [
+                            60, 60, 60, 60, 60, 18, 34, 60, 35, 60, 60, 33, 30, 60, 33, 34, 33, 31,
+                            33, 36, 32, 32, 60, 35, 33, 36, 31, 35, 35, 33, 33, 34, 35, 60, 33, 60,
+                            60, 60, 60, 60, 60
+                        ]
+                        .to_vec()
+                    },
+                    PileupInfo {
+                        n_cov: 41,
+                        n_mismatch: 0,
+                        n_indel: 38,
+                        n_supp: 0,
+                        n_softclip: 0,
+                        mapq: [
+                            60, 60, 60, 60, 60, 60, 60, 60, 18, 18, 34, 34, 60, 60, 35, 35, 60, 60,
+                            60, 60, 33, 33, 30, 30, 60, 60, 33, 33, 34, 34, 33, 33, 31, 31, 33, 33,
+                            36, 36, 32, 32, 32, 32, 60, 60, 35, 35, 33, 33, 36, 36, 31, 31, 35, 35,
+                            35, 35, 33, 33, 33, 33, 34, 34, 35, 35, 60, 60, 33, 33, 60, 60, 60, 60,
+                            60, 60, 60, 60, 60, 60, 60
+                        ]
+                        .to_vec()
+                    }
+                ]
+                .to_vec()
+            }
+        );
+    }
 }

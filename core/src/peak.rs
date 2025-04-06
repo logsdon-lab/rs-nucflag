@@ -43,8 +43,13 @@ pub fn find_peaks(
         // https://www.statisticshowto.com/median-absolute-deviation/
         // https://www.ibm.com/docs/en/cognos-analytics/11.1.x?topic=terms-modified-z-score
         // https://www.statology.org/modified-z-score/
+        .with_column(((col(&colname) - col(&median_col)).abs().median()).alias(&stdev_col))
         .with_column(
-            ((col(&colname) - col(&median_col)).abs().median() * lit(1.486)).alias(&stdev_col),
+            // If MAD is zero, use mean absolute deviation and scale.
+            when(col(&stdev_col).eq(lit(0.0)))
+                .then((col(&colname) - col(&colname).mean()).abs().mean() * lit(1.253314))
+                .otherwise(col(&stdev_col) * lit(1.486))
+                .alias(&stdev_col),
         )
         .with_column(((col(&colname) - col(&median_col)) / col(&stdev_col)).alias(&zscore_col))
         .with_column(

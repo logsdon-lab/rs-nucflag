@@ -46,7 +46,7 @@ fn run_nucflag(
         // If no intervals, apply to whole genome based on header.
         let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(bamfile)?;
         let header = bam.read_header()?;
-        let window = cfg.general.bp_window;
+        let window = cfg.general.bp_wg_window;
         header
             .reference_sequences()
             .into_iter()
@@ -87,7 +87,7 @@ fn run_nucflag(
         .into_par_iter()
         .flat_map(|itv| {
             // Open the BAM file in read-only per thread.
-            let res = nucflag(bamfile, &itv, cfg.clone(), cfg.general.cov);
+            let res = nucflag(bamfile, &itv, cfg.clone(), cfg.cov.baseline);
             match res {
                 Ok(res) => Some(PyNucFlagResult {
                     ctg: itv.metadata,

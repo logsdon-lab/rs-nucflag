@@ -3,7 +3,8 @@ use std::{convert::Infallible, str::FromStr};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MisassemblyType {
     LowQuality,
-    CollapseVar,
+    Indel,
+    SoftClip,
     Collapse,
     Misjoin,
     FalseDupe,
@@ -13,11 +14,18 @@ pub enum MisassemblyType {
 impl MisassemblyType {
     pub fn item_rgb(&self) -> &'static str {
         match self {
-            MisassemblyType::LowQuality => "255,255,0",
-            MisassemblyType::CollapseVar => "0,0,255",
+            // Purple
+            MisassemblyType::Indel => "128,0,128",
+            // Teal
+            MisassemblyType::SoftClip => "0,255,255",
+            // Pink
+            MisassemblyType::LowQuality => "255,0,128",
+            // Green
             MisassemblyType::Collapse => "0,255,0",
+            // Orange
             MisassemblyType::Misjoin => "255,165,0",
-            MisassemblyType::FalseDupe => "128,0,128",
+            // Blue
+            MisassemblyType::FalseDupe => "0,0,255",
             MisassemblyType::Null => "0,0,0",
         }
     }
@@ -29,7 +37,8 @@ impl FromStr for MisassemblyType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
             "low_quality" => MisassemblyType::LowQuality,
-            "collapse_var" => MisassemblyType::CollapseVar,
+            "indel" => MisassemblyType::Indel,
+            "softclip" => MisassemblyType::SoftClip,
             "misjoin" => MisassemblyType::Misjoin,
             "collapse" => MisassemblyType::Collapse,
             "false_dupe" => MisassemblyType::FalseDupe,

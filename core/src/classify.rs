@@ -12,24 +12,82 @@ use itertools::{multizip, Itertools};
 use noodles::bam::{self};
 use polars::prelude::*;
 
-fn merge_pileup_info(pileup: Vec<PileupInfo>, st: u64, end: u64) -> eyre::Result<DataFrame> {
-    let (mut first_cnts, mut second_cnts, mut mapq_cnts) = (
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-    );
-    for p in pileup.into_iter() {
-        first_cnts.push(p.first());
-        second_cnts.push(p.second());
-        mapq_cnts.push(p.mean_mapq().unwrap_or(0));
+// TODO: Write macro to simplify.
+fn merge_pileup_info(
+    pileup: Vec<PileupInfo>,
+    st: u64,
+    end: u64,
+    cfg: &Config,
+) -> eyre::Result<DataFrame> {
+    let cols = if cfg.mismatch.is_some() {
+        let (
+            mut cov_cnts,
+            mut mismatch_cnts,
+            mut mapq_cnts,
+            mut supp_cnts,
+            mut indel_cnts,
+            mut softclip_cnts,
+        ) = (
+            Vec::with_capacity(pileup.len()),
+            Vec::with_capacity(pileup.len()),
+            Vec::with_capacity(pileup.len()),
+            Vec::with_capacity(pileup.len()),
+            Vec::with_capacity(pileup.len()),
+            Vec::with_capacity(pileup.len()),
+        );
+        for p in pileup.into_iter() {
+            cov_cnts.push(p.n_cov);
+            mismatch_cnts.push(p.n_mismatch);
+            mapq_cnts.push(p.median_mapq().unwrap_or(0));
+            supp_cnts.push(p.n_supp);
+            indel_cnts.push(p.n_indel);
+            softclip_cnts.push(p.n_softclip);
+        }
+        vec![
+            Column::new("pos".into(), st..end + 1),
+            Column::new("cov".into(), cov_cnts),
+            Column::new("mismatch".into(), mismatch_cnts),
+            Column::new("mapq".into(), mapq_cnts),
+            Column::new("supp".into(), supp_cnts),
+            Column::new("indel".into(), indel_cnts),
+            Column::new("softclip".into(), softclip_cnts),
+        ]
+    } else {
+        let (mut cov_cnts, mut mapq_cnts, mut supp_cnts, mut indel_cnts, mut softclip_cnts) = (
+            Vec::with_capacity(pileup.len()),
+            Vec::with_capacity(pileup.len()),
+            Vec::with_capacity(pileup.len()),
+            Vec::with_capacity(pileup.len()),
+            Vec::with_capacity(pileup.len()),
+        );
+        for p in pileup.into_iter() {
+            cov_cnts.push(p.n_cov);
+            mapq_cnts.push(p.median_mapq().unwrap_or(0));
+            supp_cnts.push(p.n_supp);
+            indel_cnts.push(p.n_indel);
+            softclip_cnts.push(p.n_softclip);
+        }
+        vec![
+            Column::new("pos".into(), st..end + 1),
+            Column::new("cov".into(), cov_cnts),
+            Column::new("mapq".into(), mapq_cnts),
+            Column::new("supp".into(), supp_cnts),
+            Column::new("indel".into(), indel_cnts),
+            Column::new("softclip".into(), softclip_cnts),
+        ]
+    };
+    let df = DataFrame::new(cols)?;
+    if let Some(window_size) = cfg.indel.rolling_mean_window {
+        Ok(df.lazy()
+        .with_column(col("indel").rolling_mean(RollingOptionsFixedWindow {
+            window_size,
+            center: true,
+            ..Default::default()
+        }))
+        .collect()?)
+    } else {
+        Ok(df)
     }
-    DataFrame::new(vec![
-        Column::new("pos".into(), st..end + 1),
-        Column::new("first".into(), first_cnts),
-        Column::new("second".into(), second_cnts),
-        Column::new("mapq".into(), mapq_cnts),
-    ])
-    .map_err(Into::into)
 }
 
 fn merge_misassemblies(
@@ -193,84 +251,128 @@ fn classify_peaks(
     cfg: &Config,
     median_cov: u64,
 ) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
-    let df_pileup = lf_pileup
+    let lf_pileup = lf_pileup
         .with_column(
-            // collapse_var
-            // Regions with at least double the median coverage and a high coverage of another variant.
+            // indel
+            // Region with insertion or deletion or soft clip that has high indel ratio and has a peak.
             when(
-                col("first_peak")
-                    .eq(lit("high"))
-                    .and(
-                        col("first")
-                        .gt_eq(lit(median_cov * 2))
-                    )
-                    .and(col("second_peak").eq(lit("high"))),
+                (col("indel").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                    .gt_eq(lit(cfg.indel.ratio_indel))
+                    .and(col("indel_peak").eq(lit("high"))),
             )
-            .then(lit("collapse_var"))
+            .then(lit("indel"))
             .when(
-                col("het_ratio")
-                    .gt_eq(lit(cfg.second.ratio_het))
-                    .and(col("second_peak").eq(lit("high"))),
+                (col("softclip").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                    .gt_eq(lit(cfg.softclip.ratio_softclip))
+                    .and(col("softclip_peak").eq(lit("high"))),
             )
-            .then(lit("low_quality"))
+            .then(lit("softclip"))
+            .otherwise(lit("good"))
+            .alias("status"),
+        )
+        .with_column(
             // collapse
-            // Perfect collapse of repetitive region with few to no secondary variants.
-            .when(
-                col("first_peak")
+            // Regions with at high coverage and high indel peak.
+            when(
+                col("cov_peak")
                     .eq(lit("high"))
-                    .and(
-                        col("first")
-                        .gt_eq(lit(median_cov * 2))
-                    )
-                    .and(col("second_peak").eq(lit("null"))),
+                    .and(col("indel_peak").eq(lit("high"))),
             )
             .then(lit("collapse"))
             // misjoin
-            // Regions with either:
-            // * Zero coverage. Might be scaffold or misjoined contig. Without reference, not known.
-            // * A dip in coverage with a high het ratio.
-            .when(col("first").eq(lit(0)).or(col("first_peak").eq(lit("low"))))
+            // Regions with zero coverage or a dip in coverage with a indels or softclipping accounting for majority of the dip.
+            // Might be scaffold or misjoined contig. Without reference, not known.
+            .when(
+                col("cov").eq(lit(0)).or(col("cov_peak").eq(lit("low")).and(
+                    col("status")
+                        .eq(lit("indel"))
+                        .or(col("status").eq(lit("softclip"))),
+                )),
+            )
             .then(lit("misjoin"))
             // false_dupe
             // Region with half of the expected coverage, n-zscores less than the global mean, and zero-mapq due to multi-mapping.
             // Either a duplicated contig, duplicated region, or an SV (large insertion of repetive region).
             .when(
-                col("first")
+                col("cov")
                     .lt_eq(lit(median_cov / 2))
-                    .and(col("first_zscore").lt_eq(lit(-cfg.first.n_zscores_false_dupe)))
+                    .and(col("cov_zscore").lt_eq(lit(-cfg.cov.n_zscores_false_dupe)))
                     .and(col("mapq").eq(lit(0))),
             )
             .then(lit("false_dupe"))
-            .otherwise(lit("good"))
+            .otherwise(col("status"))
+            .alias("status"),
+        );
+
+    let lf_pileup = if let Some(cfg_mismatch) = &cfg.mismatch {
+        lf_pileup.with_column(
+            // low_quality
+            // Regions with high mismatch peak and het ratio.
+            when(
+                col("mismatch_ratio")
+                    .gt_eq(lit(cfg_mismatch.ratio_het))
+                    .and(col("mismatch_peak").eq(lit("high"))),
+            )
+            .then(lit("low_quality"))
+            .otherwise(col("status"))
             .alias("status"),
         )
-        .with_column(lit(ctg).alias("chrom"))
-        .select([
+    } else {
+        lf_pileup
+    };
+
+    let pileup_cols = if cfg.mismatch.is_some() {
+        vec![
             col("chrom"),
             col("pos"),
-            col("first"),
-            col("second"),
-            col("first_zscore"),
-            col("second_zscore"),
+            col("cov"),
+            col("mismatch"),
             col("mapq"),
             col("status"),
-        ])
+            col("indel"),
+            col("supp"),
+            col("softclip"),
+            col("cov_zscore"),
+            col("mismatch_zscore"),
+            col("indel_zscore"),
+            col("softclip_zscore"),
+        ]
+    } else {
+        vec![
+            col("chrom"),
+            col("pos"),
+            col("cov"),
+            col("mapq"),
+            col("status"),
+            col("indel"),
+            col("supp"),
+            col("softclip"),
+            col("cov_zscore"),
+            col("indel_zscore"),
+            col("softclip_zscore"),
+        ]
+    };
+    let df_pileup = lf_pileup
+        .with_column(lit(ctg).alias("chrom"))
+        .select(pileup_cols)
         .collect()?;
 
     // Construct intervals.
     // Store [st,end,type,cov]
+    let itv_cols = if cfg.mismatch.is_some() {
+        vec!["pos", "cov", "mismatch", "status"]
+    } else {
+        vec!["pos", "cov", "status"]
+    };
     let df_itvs = df_pileup
-        .select(["pos", "first", "second", "status"])?
+        .select(itv_cols)?
         .lazy()
         .with_column(col("status").rle_id().alias("group"))
         .group_by([col("group")])
         .agg([
             col("pos").min().alias("st"),
             col("pos").max().alias("end") + lit(1),
-            (col("first") + col("second"))
-                .mean()
-                .alias("cov")
-                .cast(DataType::UInt8),
+            col("cov").mean().cast(DataType::UInt8),
             col("status").first(),
         ])
         .drop([col("group")])
@@ -300,53 +402,97 @@ pub fn nucflag(
     let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(&bamfile)?;
     let pileup = pileup(&mut bam, itv)?;
 
-    // Scale thresholds by contig depth. Regions with fewer mapped reads get stricter parameters.
-    let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end)?;
+    let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end, &cfg)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
-    let median_first: u64 = df_raw_pileup
-        .column("first")?
+    // Calculate est coverage for region or use provided.
+    let est_median_cov: u64 = df_raw_pileup
+        .column("cov")?
         .median_reduce()?
         .value()
         .try_extract()?;
-    let median_second: u64 = df_raw_pileup
-        .column("second")?
-        .median_reduce()?
-        .value()
-        .try_extract()?;
-    let median_cov = avg_cov.unwrap_or(median_first + median_second);
+    let median_cov = avg_cov.unwrap_or(est_median_cov);
     log::debug!("Average coverage for {ctg}:{st}-{end}: {median_cov}");
 
-    let lf_first_peaks = find_peaks(
-        df_raw_pileup.select(["pos", "first"])?,
-        cfg.first.n_zscores_low,
-        cfg.first.n_zscores_high,
-    )?;
-    let lf_second_peaks = find_peaks(
-        df_raw_pileup.select(["pos", "second"])?,
-        cfg.second.n_zscores_high,
-        cfg.second.n_zscores_high,
+    //  Detect dips and peaks in coverage.
+    let lf_cov_peaks = find_peaks(
+        df_raw_pileup.select(["pos", "cov"])?,
+        cfg.cov.n_zscores_low,
+        cfg.cov.n_zscores_high,
     )?;
 
-    let lf_pileup = lf_first_peaks
-        .join(
-            lf_second_peaks,
+    // Detect indel peaks.
+    let lf_indel_peaks = find_peaks(
+        df_raw_pileup.select(["pos", "indel"])?,
+        // Don't care about dips in indels.
+        cfg.indel.n_zscores_high,
+        cfg.indel.n_zscores_high,
+    )?;
+    let lf_cov_peaks = lf_cov_peaks.join(
+        lf_indel_peaks,
+        [col("pos")],
+        [col("pos")],
+        JoinArgs::new(JoinType::Left),
+    );
+
+    // Optionally, call peaks in mismatch-base signal.
+    let lf_cov_peaks = if let Some(cfg_mismatch) = &cfg.mismatch {
+        let lf_mismatch_peaks = find_peaks(
+            df_raw_pileup.select(["pos", "mismatch"])?,
+            cfg_mismatch.n_zscores_high,
+            cfg_mismatch.n_zscores_high,
+        )?;
+        lf_cov_peaks.join(
+            lf_mismatch_peaks,
             [col("pos")],
             [col("pos")],
             JoinArgs::new(JoinType::Left),
         )
-        .join(
-            df_raw_pileup.select(["pos", "mapq"])?.lazy(),
-            [col("pos")],
-            [col("pos")],
-            JoinArgs::new(JoinType::Left),
+    } else {
+        lf_cov_peaks
+    };
+
+    // Detect indel peaks.
+    let lf_softclip_peaks = find_peaks(
+        df_raw_pileup.select(["pos", "softclip"])?,
+        // Don't care about dips in indels.
+        cfg.softclip.n_zscores_high,
+        cfg.softclip.n_zscores_high,
+    )?;
+    let lf_cov_peaks = lf_cov_peaks.join(
+        lf_softclip_peaks,
+        [col("pos")],
+        [col("pos")],
+        JoinArgs::new(JoinType::Left),
+    );
+
+    // Add mapq
+    let lf_pileup = lf_cov_peaks.join(
+        df_raw_pileup.select(["pos", "mapq"])?.lazy(),
+        [col("pos")],
+        [col("pos")],
+        JoinArgs::new(JoinType::Left),
+    );
+
+    // Calculate het ratio.
+    let lf_pileup = if cfg.mismatch.is_some() {
+        lf_pileup.with_column(
+            (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                .alias("mismatch_ratio"),
         )
-        .with_column(
-            // Calculate het ratio.
-            (col("second").cast(DataType::Float32)
-                / (col("first").cast(DataType::Float32) + col("second").cast(DataType::Float32)))
-            .alias("het_ratio"),
-        );
+    } else {
+        lf_pileup
+    };
+
+    // Add supplementary and indel counts.
+    let lf_pileup = lf_pileup.join(
+        df_raw_pileup
+            .select(["pos", "supp", "indel", "softclip"])?
+            .lazy(),
+        [col("pos")],
+        [col("pos")],
+        JoinArgs::new(JoinType::Left),
+    );
 
     std::mem::drop(df_raw_pileup);
 
