@@ -98,8 +98,8 @@ impl Default for IndelConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 4.0,
-            ratio_indel: 0.5,
-            rolling_mean_window: Some(5)
+            ratio_indel: 0.8,
+            rolling_mean_window: Some(3)
         }
     }
 }
