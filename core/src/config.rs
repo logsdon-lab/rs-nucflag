@@ -91,7 +91,7 @@ pub struct IndelConfig {
     /// Ratio used to call indel peaks.
     pub ratio_indel: f32,
     /// Window to apply rolling mean filter. Reduces noise.
-    pub rolling_mean_window: Option<usize>
+    pub rolling_mean_window: Option<usize>,
 }
 
 impl Default for IndelConfig {
@@ -99,7 +99,7 @@ impl Default for IndelConfig {
         Self {
             n_zscores_high: 4.0,
             ratio_indel: 0.8,
-            rolling_mean_window: Some(3)
+            rolling_mean_window: Some(3),
         }
     }
 }

@@ -1,15 +1,16 @@
+use core::str;
 use std::{path::Path, str::FromStr};
 
 use crate::{
-    config::Config,
-    intervals::merge_overlapping_intervals,
-    misassembly::MisassemblyType,
-    peak::find_peaks,
-    pileup::{pileup, PileupInfo},
+    config::Config, intervals::merge_overlapping_intervals, misassembly::MisassemblyType,
+    peak::find_peaks, pileup::AlignmentFile, pileup::PileupInfo,
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
 use itertools::{multizip, Itertools};
-use noodles::bam::{self};
+use noodles::{
+    core::{Position, Region},
+    fasta,
+};
 use polars::prelude::*;
 
 // TODO: Write macro to simplify.
@@ -78,13 +79,14 @@ fn merge_pileup_info(
     };
     let df = DataFrame::new(cols)?;
     if let Some(window_size) = cfg.indel.rolling_mean_window {
-        Ok(df.lazy()
-        .with_column(col("indel").rolling_mean(RollingOptionsFixedWindow {
-            window_size,
-            center: true,
-            ..Default::default()
-        }))
-        .collect()?)
+        Ok(df
+            .lazy()
+            .with_column(col("indel").rolling_mean(RollingOptionsFixedWindow {
+                window_size,
+                center: true,
+                ..Default::default()
+            }))
+            .collect()?)
     } else {
         Ok(df)
     }
@@ -384,7 +386,8 @@ fn classify_peaks(
 /// Detect misasemblies from alignment read coverage using per-base read coverage.
 ///
 /// # Arguments
-/// * `bamfile`: Input BAM file path. Should be indexed and filtered to only primary alignments (?).  
+/// * `aln`: Input BAM/CRAM file path. Should be indexed.  
+/// * `fasta`: Input BAM file path. Required with CRAM. Also used for region binning.  
 /// * `itv`: Interval to check.
 /// * `cfg`: Peak-calling configuration.
 /// * `avg_cov`: Average coverage of assembly. Used only for classifying false-duplications. Defaults to contig coverage.
@@ -392,18 +395,40 @@ fn classify_peaks(
 /// # Returns
 /// * [`NucFlagResult`]
 pub fn nucflag(
-    bamfile: impl AsRef<Path>,
+    aln: impl AsRef<Path>,
+    fasta: Option<impl AsRef<Path> + Clone>,
     itv: &Interval<String>,
     cfg: Config,
     avg_cov: Option<u64>,
 ) -> eyre::Result<NucFlagResult> {
     let ctg = itv.metadata.clone();
     let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
-    let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(&bamfile)?;
-    let pileup = pileup(&mut bam, itv)?;
+
+    let mut aln = AlignmentFile::new(aln, fasta.clone())?;
+    let pileup = aln.pileup(itv)?;
 
     let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end, &cfg)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
+
+    let df_raw_pileup = if let Some(fasta) = fasta {
+        let mut reader_fasta =
+            fasta::io::indexed_reader::Builder::default().build_from_path(fasta)?;
+        let position = Position::new(itv.first.try_into()?).unwrap()
+            ..=Position::new(itv.last.try_into()?).unwrap();
+        let region = Region::new(itv.metadata.clone(), position);
+        let seq = reader_fasta.query(&region)?;
+        eprintln!("Calculating self-identity for {ctg}:{st}-{end} to bin region.");
+        // TODO: Adjust coordinates.
+        let bed_ident = rs_moddotplot::compute_seq_self_identity(
+            str::from_utf8(seq.sequence().as_ref())?,
+            &itv.metadata,
+            None,
+        );
+        println!("{bed_ident:?}");
+        df_raw_pileup
+    } else {
+        df_raw_pileup
+    };
 
     // Calculate est coverage for region or use provided.
     let est_median_cov: u64 = df_raw_pileup

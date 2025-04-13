@@ -1,9 +1,9 @@
 use coitrees::Interval;
 use core::str;
-use noodles::bam;
 use nucflag::{
     classify::nucflag,
     io::{read_bed, read_cfg},
+    pileup::AlignmentFile,
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 use pyo3_polars::PyDataFrame;
@@ -30,10 +30,11 @@ pub struct PyNucFlagResult {
 
 /// Classify a missassembly.
 #[pyfunction]
-#[pyo3(signature = (bamfile, bedfile = None, threads = 1, cfg = None))]
+#[pyo3(signature = (aln, fasta = None, bed = None, threads = 1, cfg = None))]
 fn run_nucflag(
-    bamfile: &str,
-    bedfile: Option<&str>,
+    aln: &str,
+    fasta: Option<&str>,
+    bed: Option<&str>,
     threads: usize,
     cfg: Option<&str>,
 ) -> PyResult<Vec<PyNucFlagResult>> {
@@ -42,10 +43,13 @@ fn run_nucflag(
     // Set rayon threadpool
     ThreadPoolBuilder::new().num_threads(threads);
 
-    let ctg_itvs: Vec<Interval<String>> = if bedfile.is_none() {
+    let ctg_itvs: Vec<Interval<String>> = if bed.is_none() {
         // If no intervals, apply to whole genome based on header.
-        let mut bam = bam::io::indexed_reader::Builder::default().build_from_path(bamfile)?;
-        let header = bam.read_header()?;
+        let mut aln =
+            AlignmentFile::new(aln, fasta).map_err(|err| PyValueError::new_err(err.to_string()))?;
+        let header = aln
+            .header()
+            .map_err(|err| PyValueError::new_err(err.to_string()))?;
         let window = cfg.general.bp_wg_window;
         header
             .reference_sequences()
@@ -72,7 +76,7 @@ fn run_nucflag(
             })
             .collect()
     } else {
-        read_bed(bedfile, |name, st, end, _| {
+        read_bed(bed, |name, st, end, _| {
             Interval::new(
                 st.try_into().unwrap(),
                 end.try_into().unwrap(),
@@ -87,7 +91,7 @@ fn run_nucflag(
         .into_par_iter()
         .flat_map(|itv| {
             // Open the BAM file in read-only per thread.
-            let res = nucflag(bamfile, &itv, cfg.clone(), cfg.cov.baseline);
+            let res = nucflag(aln, fasta, &itv, cfg.clone(), cfg.cov.baseline);
             match res {
                 Ok(res) => Some(PyNucFlagResult {
                     ctg: itv.metadata,

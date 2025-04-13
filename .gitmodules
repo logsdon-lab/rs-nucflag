@@ -1,0 +1,3 @@
+[submodule "core/src/rs-moddotplot"]
+	path = core/src/rs-moddotplot
+	url = https://github.com/koisland/rs-moddotplot.git

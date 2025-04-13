@@ -1,11 +1,19 @@
-use std::fs::File;
-
-use coitrees::{GenericInterval, Interval};
 use itertools::Itertools;
 use noodles::{
-    bam,
-    core::{Position, Region},
-    sam::alignment::record::cigar::op::Kind,
+    core::Region,
+    sam::{
+        alignment::record::{cigar::op::Kind, Cigar},
+        Header,
+    },
+};
+use std::{fs::File, path::Path};
+
+use coitrees::{GenericInterval, Interval};
+use noodles::{
+    bam, bgzf,
+    core::Position,
+    cram,
+    fasta::{self, repository},
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -22,6 +30,11 @@ pub struct PileupInfo {
 pub struct PileupSummary {
     pub region: Region,
     pub pileups: Vec<PileupInfo>,
+}
+
+pub enum AlignmentFile {
+    Cram(cram::io::IndexedReader<File>),
+    Bam(bam::io::IndexedReader<bgzf::Reader<File>>),
 }
 
 impl PileupInfo {
@@ -53,13 +66,15 @@ impl PileupInfo {
 }
 
 // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignedsegment.pyx#L2009
-pub fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, Kind)>> {
-    let cg = read.cigar();
-    let mut pos: usize = read.alignment_start().unwrap()?.get();
+pub fn get_aligned_pairs(
+    cg: impl Iterator<Item = (Kind, usize)>,
+    pos: usize,
+) -> eyre::Result<Vec<(usize, usize, Kind)>> {
+    let mut pos: usize = pos;
     let mut qpos: usize = 0;
     let mut pairs = vec![];
     // Matches only
-    for (op, l) in cg.iter().flatten().map(|op| (op.kind(), op.len())) {
+    for (op, l) in cg {
         match op {
             Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => {
                 for i in pos..(pos + l) {
@@ -92,37 +107,18 @@ pub fn get_aligned_pairs(read: &bam::Record) -> eyre::Result<Vec<(usize, usize, 
     Ok(pairs)
 }
 
-pub fn pileup(
-    bam: &mut bam::io::IndexedReader<noodles::bgzf::Reader<File>>,
-    itv: &Interval<String>,
-) -> eyre::Result<PileupSummary> {
-    let st = TryInto::<usize>::try_into(itv.first)?.clamp(1, usize::MAX);
-    let end: usize = itv.last.try_into()?;
-    let length: usize = itv.len().try_into()?;
-
-    // Query entire contig.
-    let region = Region::new(
-        &*itv.metadata,
-        Position::try_from(st)?..=Position::try_from(end)?,
-    );
-
-    let header = bam.read_header()?;
-
-    // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignmentfile.pyx#L1458
-    let query = bam.query(&header, &region)?;
-    let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length];
-
-    log::info!("Generating pileup over {}:{st}-{end}.", region.name());
-    for read in query.into_iter().flatten() {
-        let mapq = read.mapping_quality().unwrap().get();
+macro_rules! pileup {
+    ($read:ident, $aln_pairs:ident, $st:ident, $end:ident, $pileup_infos:ident) => {
         // If within region of interest.
-        for (_qpos, refpos, kind) in get_aligned_pairs(&read)?
+        for (_qpos, refpos, kind) in $aln_pairs
             .into_iter()
-            .filter(|(_, refpos, _)| *refpos >= st && *refpos <= end)
+            .filter(|(_, refpos, _)| *refpos >= $st && *refpos <= $end)
         {
-            let pos = refpos - st;
-            let pileup_info = &mut pileup_infos[pos];
-            pileup_info.mapq.push(mapq);
+            let pos = refpos - $st;
+            let pileup_info = &mut $pileup_infos[pos];
+            pileup_info
+                .mapq
+                .push($read.mapping_quality().unwrap().get());
 
             match kind {
                 Kind::Deletion | Kind::Insertion => {
@@ -141,40 +137,107 @@ pub fn pileup(
 
             pileup_info.n_cov += 1;
 
-            if read.flags().is_supplementary() {
+            if $read.flags().is_supplementary() {
                 pileup_info.n_supp += 1
             }
         }
-    }
-    log::info!("Finished pileup over {}:{st}-{end}.", region.name());
+    };
+}
 
-    Ok(PileupSummary {
-        region,
-        pileups: pileup_infos,
-    })
+impl AlignmentFile {
+    pub fn new(aln: impl AsRef<Path>, fasta: Option<impl AsRef<Path>>) -> eyre::Result<Self> {
+        // Try to build cram.
+        let is_cram = cram::io::indexed_reader::Builder::default().build_from_path(aln.as_ref()).ok();
+        // Then check if fasta and cram.
+        if let Some(fasta) = is_cram.and(fasta) {
+            let fasta_fh = fasta::io::indexed_reader::Builder::default().build_from_path(fasta)?;
+            let reference_sequence_repository =
+                fasta::Repository::new(repository::adapters::IndexedReader::new(fasta_fh));
+            Ok(Self::Cram(
+                cram::io::indexed_reader::Builder::default()
+                    .set_reference_sequence_repository(reference_sequence_repository)
+                    .build_from_path(aln)?,
+            ))
+        } else {
+            // Otherwise, assume bam.
+            Ok(Self::Bam(
+                bam::io::indexed_reader::Builder::default().build_from_path(&aln)?,
+            ))
+        }
+    }
+    pub fn header(&mut self) -> eyre::Result<Header> {
+        match self {
+            AlignmentFile::Cram(indexed_reader) => Ok(indexed_reader.read_header()?),
+            AlignmentFile::Bam(indexed_reader) => Ok(indexed_reader.read_header()?),
+        }
+    }
+
+    pub fn pileup(&mut self, itv: &Interval<String>) -> eyre::Result<PileupSummary> {
+        let st = TryInto::<usize>::try_into(itv.first)?.clamp(1, usize::MAX);
+        let end: usize = itv.last.try_into()?;
+        let length = itv.len();
+        // Query entire contig.
+        let region = Region::new(
+            &*itv.metadata,
+            Position::try_from(st)?..=Position::try_from(end)?,
+        );
+
+        log::info!("Generating pileup over {}:{st}-{end}.", region.name());
+
+        let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length.try_into()?];
+        // Reduce some redundancy with macro.
+        // https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignmentfile.pyx#L1458
+        match self {
+            AlignmentFile::Cram(indexed_reader) => {
+                let header: noodles::sam::Header = indexed_reader.read_header()?;
+                let query: cram::io::reader::Query<'_, File> =
+                    indexed_reader.query(&header, &region)?;
+                for read in query.into_iter().flatten() {
+                    let cg: &noodles::sam::alignment::record_buf::Cigar = read.cigar();
+                    let aln_pairs = get_aligned_pairs(
+                        cg.iter().flatten().map(|op| (op.kind(), op.len())),
+                        read.alignment_start().unwrap().get(),
+                    )?;
+                    pileup!(read, aln_pairs, st, end, pileup_infos)
+                }
+            }
+            AlignmentFile::Bam(indexed_reader) => {
+                let header: noodles::sam::Header = indexed_reader.read_header()?;
+                let query: bam::io::reader::Query<'_, bgzf::Reader<File>> =
+                    indexed_reader.query(&header, &region)?;
+                for read in query.into_iter().flatten() {
+                    let cg: bam::record::Cigar<'_> = read.cigar();
+                    let aln_pairs = get_aligned_pairs(
+                        cg.iter().flatten().map(|op| (op.kind(), op.len())),
+                        read.alignment_start().unwrap()?.get(),
+                    )?;
+                    pileup!(read, aln_pairs, st, end, pileup_infos)
+                }
+            }
+        }
+        log::info!("Finished pileup over {}:{st}-{end}.", region.name());
+
+        Ok(PileupSummary {
+            region,
+            pileups: pileup_infos,
+        })
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::pileup::{PileupInfo, PileupSummary};
-    use noodles::{
-        bam,
-        core::{Position, Region},
-    };
-
-    use super::pileup;
+    use crate::pileup::{AlignmentFile, PileupInfo, PileupSummary};
+    use noodles::core::{Position, Region};
 
     #[test]
     fn test_pileup() {
-        let mut bam = bam::io::indexed_reader::Builder::default()
-            .build_from_path("test/pileup/test.bam")
-            .unwrap();
+        let mut bam = AlignmentFile::new("test/pileup/test.bam", None::<&str>).unwrap();
         let itv = coitrees::Interval::new(
             9667238,
             9667240,
             "K1463_2281_chr15_contig-0000423".to_owned(),
         );
-        let res = pileup(&mut bam, &itv).unwrap();
+        let res = bam.pileup(&itv).unwrap();
         assert_eq!(
             res,
             PileupSummary {
