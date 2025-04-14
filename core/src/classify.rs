@@ -2,16 +2,17 @@ use core::str;
 use std::{path::Path, str::FromStr};
 
 use crate::{
-    config::Config, intervals::merge_overlapping_intervals, misassembly::MisassemblyType,
-    peak::find_peaks, pileup::AlignmentFile, pileup::PileupInfo,
+    binning::split_pileup,
+    config::Config,
+    intervals::merge_overlapping_intervals,
+    misassembly::MisassemblyType,
+    peak::find_peaks,
+    pileup::{AlignmentFile, PileupInfo},
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
 use itertools::{multizip, Itertools};
-use noodles::{
-    core::{Position, Region},
-    fasta,
-};
 use polars::prelude::*;
+use rayon::prelude::*;
 
 // TODO: Write macro to simplify.
 fn merge_pileup_info(
@@ -383,6 +384,105 @@ fn classify_peaks(
     Ok((df_itvs, cfg.general.store_coverage.then_some(df_pileup)))
 }
 
+fn nucflag_grp(
+    df_pileup: DataFrame,
+    cfg: &Config,
+    ctg: &str,
+    avg_cov: Option<u64>,
+) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
+    // Calculate est coverage for region or use provided.
+    let est_median_cov: u64 = df_pileup
+        .column("cov")?
+        .median_reduce()?
+        .value()
+        .try_extract()?;
+    let median_cov = avg_cov.unwrap_or(est_median_cov);
+
+    //  Detect dips and peaks in coverage.
+    let lf_cov_peaks = find_peaks(
+        df_pileup.select(["pos", "cov"])?,
+        cfg.cov.n_zscores_low,
+        cfg.cov.n_zscores_high,
+    )?;
+
+    // Detect indel peaks.
+    let lf_indel_peaks = find_peaks(
+        df_pileup.select(["pos", "indel"])?,
+        // Don't care about dips in indels.
+        cfg.indel.n_zscores_high,
+        cfg.indel.n_zscores_high,
+    )?;
+    let lf_cov_peaks = lf_cov_peaks.join(
+        lf_indel_peaks,
+        [col("pos")],
+        [col("pos")],
+        JoinArgs::new(JoinType::Left),
+    );
+
+    // Optionally, call peaks in mismatch-base signal.
+    let lf_cov_peaks = if let Some(cfg_mismatch) = &cfg.mismatch {
+        let lf_mismatch_peaks = find_peaks(
+            df_pileup.select(["pos", "mismatch"])?,
+            cfg_mismatch.n_zscores_high,
+            cfg_mismatch.n_zscores_high,
+        )?;
+        lf_cov_peaks.join(
+            lf_mismatch_peaks,
+            [col("pos")],
+            [col("pos")],
+            JoinArgs::new(JoinType::Left),
+        )
+    } else {
+        lf_cov_peaks
+    };
+
+    // Detect indel peaks.
+    let lf_softclip_peaks = find_peaks(
+        df_pileup.select(["pos", "softclip"])?,
+        // Don't care about dips in indels.
+        cfg.softclip.n_zscores_high,
+        cfg.softclip.n_zscores_high,
+    )?;
+    let lf_cov_peaks = lf_cov_peaks.join(
+        lf_softclip_peaks,
+        [col("pos")],
+        [col("pos")],
+        JoinArgs::new(JoinType::Left),
+    );
+
+    // Add mapq
+    let lf_pileup = lf_cov_peaks.join(
+        df_pileup.select(["pos", "mapq"])?.lazy(),
+        [col("pos")],
+        [col("pos")],
+        JoinArgs::new(JoinType::Left),
+    );
+
+    // Calculate het ratio.
+    let lf_pileup = if cfg.mismatch.is_some() {
+        lf_pileup.with_column(
+            (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                .alias("mismatch_ratio"),
+        )
+    } else {
+        lf_pileup
+    };
+
+    // Add supplementary and indel counts.
+    let lf_pileup = lf_pileup.join(
+        df_pileup
+            .select(["pos", "supp", "indel", "softclip"])?
+            .lazy(),
+        [col("pos")],
+        [col("pos")],
+        JoinArgs::new(JoinType::Left),
+    );
+
+    std::mem::drop(df_pileup);
+
+    classify_peaks(lf_pileup, ctg, cfg, median_cov)
+}
+
 /// Detect misasemblies from alignment read coverage using per-base read coverage.
 ///
 /// # Arguments
@@ -410,118 +510,35 @@ pub fn nucflag(
     let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end, &cfg)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
-    let df_raw_pileup = if let Some(fasta) = fasta {
-        let mut reader_fasta =
-            fasta::io::indexed_reader::Builder::default().build_from_path(fasta)?;
-        let position = Position::new(itv.first.try_into()?).unwrap()
-            ..=Position::new(itv.last.try_into()?).unwrap();
-        let region = Region::new(itv.metadata.clone(), position);
-        let seq = reader_fasta.query(&region)?;
-        eprintln!("Calculating self-identity for {ctg}:{st}-{end} to bin region.");
-        // TODO: Adjust coordinates.
-        let bed_ident = rs_moddotplot::compute_seq_self_identity(
-            str::from_utf8(seq.sequence().as_ref())?,
-            &itv.metadata,
-            None,
-        );
-        println!("{bed_ident:?}");
-        df_raw_pileup
+    let df_pileup_groups = if let Some(fasta) = fasta {
+        split_pileup(df_raw_pileup, fasta, itv, 5000, 0.1)?.partition_by(["bin"], false)?
     } else {
-        df_raw_pileup
+        vec![df_raw_pileup]
     };
 
-    // Calculate est coverage for region or use provided.
-    let est_median_cov: u64 = df_raw_pileup
-        .column("cov")?
-        .median_reduce()?
-        .value()
-        .try_extract()?;
-    let median_cov = avg_cov.unwrap_or(est_median_cov);
-    log::debug!("Average coverage for {ctg}:{st}-{end}: {median_cov}");
+    let (dfs_itvs, dfs_pileup): (Vec<LazyFrame>, Vec<Option<LazyFrame>>) = df_pileup_groups
+        .into_par_iter()
+        .map(|df_pileup_grp| {
+            let (df_itv, df_pileup) = nucflag_grp(df_pileup_grp, &cfg, &ctg, avg_cov).unwrap();
+            (df_itv.lazy(), df_pileup.map(|df| df.lazy()))
+        })
+        .unzip();
+    let df_itvs = concat(dfs_itvs, Default::default())?
+        .sort(["st"], Default::default())
+        .collect()?;
 
-    //  Detect dips and peaks in coverage.
-    let lf_cov_peaks = find_peaks(
-        df_raw_pileup.select(["pos", "cov"])?,
-        cfg.cov.n_zscores_low,
-        cfg.cov.n_zscores_high,
-    )?;
-
-    // Detect indel peaks.
-    let lf_indel_peaks = find_peaks(
-        df_raw_pileup.select(["pos", "indel"])?,
-        // Don't care about dips in indels.
-        cfg.indel.n_zscores_high,
-        cfg.indel.n_zscores_high,
-    )?;
-    let lf_cov_peaks = lf_cov_peaks.join(
-        lf_indel_peaks,
-        [col("pos")],
-        [col("pos")],
-        JoinArgs::new(JoinType::Left),
-    );
-
-    // Optionally, call peaks in mismatch-base signal.
-    let lf_cov_peaks = if let Some(cfg_mismatch) = &cfg.mismatch {
-        let lf_mismatch_peaks = find_peaks(
-            df_raw_pileup.select(["pos", "mismatch"])?,
-            cfg_mismatch.n_zscores_high,
-            cfg_mismatch.n_zscores_high,
-        )?;
-        lf_cov_peaks.join(
-            lf_mismatch_peaks,
-            [col("pos")],
-            [col("pos")],
-            JoinArgs::new(JoinType::Left),
+    let df_pileup = if cfg.general.store_coverage {
+        Some(
+            concat(
+                dfs_pileup.into_iter().flatten().collect::<Vec<LazyFrame>>(),
+                Default::default(),
+            )?
+            .sort(["chrom", "pos"], Default::default())
+            .collect()?,
         )
     } else {
-        lf_cov_peaks
+        None
     };
-
-    // Detect indel peaks.
-    let lf_softclip_peaks = find_peaks(
-        df_raw_pileup.select(["pos", "softclip"])?,
-        // Don't care about dips in indels.
-        cfg.softclip.n_zscores_high,
-        cfg.softclip.n_zscores_high,
-    )?;
-    let lf_cov_peaks = lf_cov_peaks.join(
-        lf_softclip_peaks,
-        [col("pos")],
-        [col("pos")],
-        JoinArgs::new(JoinType::Left),
-    );
-
-    // Add mapq
-    let lf_pileup = lf_cov_peaks.join(
-        df_raw_pileup.select(["pos", "mapq"])?.lazy(),
-        [col("pos")],
-        [col("pos")],
-        JoinArgs::new(JoinType::Left),
-    );
-
-    // Calculate het ratio.
-    let lf_pileup = if cfg.mismatch.is_some() {
-        lf_pileup.with_column(
-            (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
-                .alias("mismatch_ratio"),
-        )
-    } else {
-        lf_pileup
-    };
-
-    // Add supplementary and indel counts.
-    let lf_pileup = lf_pileup.join(
-        df_raw_pileup
-            .select(["pos", "supp", "indel", "softclip"])?
-            .lazy(),
-        [col("pos")],
-        [col("pos")],
-        JoinArgs::new(JoinType::Left),
-    );
-
-    std::mem::drop(df_raw_pileup);
-
-    let (df_itvs, df_pileup) = classify_peaks(lf_pileup, &ctg, &cfg, median_cov)?;
 
     let bp_filter: i32 = cfg.general.bp_min.try_into()?;
     let bp_merge: i32 = cfg.general.bp_merge.try_into()?;

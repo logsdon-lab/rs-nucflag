@@ -147,7 +147,9 @@ macro_rules! pileup {
 impl AlignmentFile {
     pub fn new(aln: impl AsRef<Path>, fasta: Option<impl AsRef<Path>>) -> eyre::Result<Self> {
         // Try to build cram.
-        let is_cram = cram::io::indexed_reader::Builder::default().build_from_path(aln.as_ref()).ok();
+        let is_cram = cram::io::indexed_reader::Builder::default()
+            .build_from_path(aln.as_ref())
+            .ok();
         // Then check if fasta and cram.
         if let Some(fasta) = is_cram.and(fasta) {
             let fasta_fh = fasta::io::indexed_reader::Builder::default().build_from_path(fasta)?;
