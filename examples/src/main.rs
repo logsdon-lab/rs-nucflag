@@ -61,7 +61,7 @@ fn cli_fasta() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn cli_no_fasta() -> Result<(), Box<dyn Error>> {
+fn _cli_no_fasta() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
     assert!(
         args.len() == 5,

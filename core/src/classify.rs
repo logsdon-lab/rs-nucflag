@@ -381,7 +381,7 @@ fn classify_peaks(
         .drop([col("group")])
         .collect()?;
 
-    Ok((df_itvs, cfg.general.store_coverage.then_some(df_pileup)))
+    Ok((df_itvs, cfg.cov.store_coverage.then_some(df_pileup)))
 }
 
 fn nucflag_grp(
@@ -510,8 +510,15 @@ pub fn nucflag(
     let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end, &cfg)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
-    let df_pileup_groups = if let Some(fasta) = fasta {
-        split_pileup(df_raw_pileup, fasta, itv, 5000, 0.1)?.partition_by(["bin"], false)?
+    let df_pileup_groups = if let (Some(fasta), Some(cfg_grp_by_ani)) = (fasta, &cfg.group_by_ani) {
+        split_pileup(
+            df_raw_pileup,
+            fasta,
+            itv,
+            cfg_grp_by_ani.window_size,
+            cfg_grp_by_ani.thr_dt_ident,
+        )?
+        .partition_by(["bin"], false)?
     } else {
         vec![df_raw_pileup]
     };
@@ -527,7 +534,7 @@ pub fn nucflag(
         .sort(["st"], Default::default())
         .collect()?;
 
-    let df_pileup = if cfg.general.store_coverage {
+    let df_pileup = if cfg.cov.store_coverage {
         Some(
             concat(
                 dfs_pileup.into_iter().flatten().collect::<Vec<LazyFrame>>(),

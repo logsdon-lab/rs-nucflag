@@ -16,7 +16,7 @@ pub fn split_pileup(
     fasta: impl AsRef<Path>,
     itv: &Interval<String>,
     window_size: usize,
-    ident_thr: f32,
+    thr_dt_ident: f32,
 ) -> eyre::Result<DataFrame> {
     let ctg = itv.metadata.clone();
     let (st, end): (i32, i32) = (itv.first, itv.last);
@@ -56,7 +56,7 @@ pub fn split_pileup(
 
         let mut groups: HashMap<OrderedFloat<f32>, u64> = HashMap::new();
         let mut group_n: u64 = 0;
-        let ident_thr = OrderedFloat(ident_thr);
+        let thr_dt_ident = OrderedFloat(thr_dt_ident);
         while let Some(ident) = all_idents.next() {
             let Some(next_ident) = all_idents.peek() else {
                 group_n += 1;
@@ -65,7 +65,7 @@ pub fn split_pileup(
             };
             groups.insert(ident, group_n);
 
-            if *next_ident - ident > ident_thr {
+            if *next_ident - ident > thr_dt_ident {
                 group_n += 1;
             }
         }

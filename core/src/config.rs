@@ -12,19 +12,36 @@ pub struct Config {
     pub indel: IndelConfig,
     /// Softcliip base config.
     pub softclip: SoftClipConfig,
+    /// Bin pileup based on self-identity. Requires fasta in input.
+    pub group_by_ani: Option<GroupByANIConfig>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct GroupByANIConfig {
+    /// Size of window to calculate self-identity.
+    pub window_size: usize,
+    /// Threshold change in percent identity to group intervals.
+    pub thr_dt_ident: f32,
+}
+
+impl Default for GroupByANIConfig {
+    fn default() -> Self {
+        Self {
+            window_size: 2000,
+            thr_dt_ident: 0.1,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
 /// Config for generated plots.
 pub struct GeneralConfig {
-    /// Number of bases to merge intervals.
+    /// Number of bases to merge misassembly intervals.
     pub bp_merge: usize,
     /// Minimum misassembly size.
     pub bp_min: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
     pub bp_wg_window: usize,
-    /// Store coverage data. Toggle off to reduce memory usage.
-    pub store_coverage: bool,
     /// Merge across misassembly type.
     pub merge_across_type: bool,
 }
@@ -36,7 +53,6 @@ impl Default for GeneralConfig {
             bp_min: 1,
             bp_wg_window: 10_000_000,
             merge_across_type: false,
-            store_coverage: true,
         }
     }
 }
@@ -52,6 +68,8 @@ pub struct CoverageConfig {
     pub n_zscores_false_dupe: f32,
     /// Baseline coverage used for false-duplication classification. Defaults to average coverage of region.
     pub baseline: Option<u64>,
+    /// Store coverage data. Toggle off to reduce memory usage.
+    pub store_coverage: bool,
 }
 
 impl Default for CoverageConfig {
@@ -61,6 +79,7 @@ impl Default for CoverageConfig {
             n_zscores_low: 3.4,
             n_zscores_false_dupe: 2.5,
             baseline: None,
+            store_coverage: true,
         }
     }
 }
