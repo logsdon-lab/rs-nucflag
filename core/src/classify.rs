@@ -275,10 +275,11 @@ fn classify_peaks(
         )
         .with_column(
             // collapse
-            // Regions with at high coverage and high indel peak.
+            // Regions with at double the coverage and high indel peak.
             when(
                 col("cov_peak")
                     .eq(lit("high"))
+                    .and(col("cov").gt_eq(lit(median_cov / 2)))
                     .and(col("indel_peak").eq(lit("high"))),
             )
             .then(lit("collapse"))
@@ -339,6 +340,7 @@ fn classify_peaks(
             col("mismatch_zscore"),
             col("indel_zscore"),
             col("softclip_zscore"),
+            col("bin"),
         ]
     } else {
         vec![
@@ -353,6 +355,7 @@ fn classify_peaks(
             col("cov_zscore"),
             col("indel_zscore"),
             col("softclip_zscore"),
+            col("bin"),
         ]
     };
     let df_pileup = lf_pileup
@@ -388,7 +391,6 @@ fn nucflag_grp(
     df_pileup: DataFrame,
     cfg: &Config,
     ctg: &str,
-    avg_cov: Option<u64>,
 ) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
     // Calculate est coverage for region or use provided.
     let est_median_cov: u64 = df_pileup
@@ -396,7 +398,7 @@ fn nucflag_grp(
         .median_reduce()?
         .value()
         .try_extract()?;
-    let median_cov = avg_cov.unwrap_or(est_median_cov);
+    let median_cov = cfg.cov.baseline.unwrap_or(est_median_cov);
 
     //  Detect dips and peaks in coverage.
     let lf_cov_peaks = find_peaks(
@@ -471,7 +473,7 @@ fn nucflag_grp(
     // Add supplementary and indel counts.
     let lf_pileup = lf_pileup.join(
         df_pileup
-            .select(["pos", "supp", "indel", "softclip"])?
+            .select(["pos", "supp", "indel", "softclip", "bin"])?
             .lazy(),
         [col("pos")],
         [col("pos")],
@@ -490,7 +492,6 @@ fn nucflag_grp(
 /// * `fasta`: Input BAM file path. Required with CRAM. Also used for region binning.  
 /// * `itv`: Interval to check.
 /// * `cfg`: Peak-calling configuration.
-/// * `avg_cov`: Average coverage of assembly. Used only for classifying false-duplications. Defaults to contig coverage.
 ///
 /// # Returns
 /// * [`NucFlagResult`]
@@ -499,7 +500,6 @@ pub fn nucflag(
     fasta: Option<impl AsRef<Path> + Clone>,
     itv: &Interval<String>,
     cfg: Config,
-    avg_cov: Option<u64>,
 ) -> eyre::Result<NucFlagResult> {
     let ctg = itv.metadata.clone();
     let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
@@ -518,15 +518,15 @@ pub fn nucflag(
             cfg_grp_by_ani.window_size,
             cfg_grp_by_ani.thr_dt_ident,
         )?
-        .partition_by(["bin"], false)?
+        .partition_by(["bin"], true)?
     } else {
-        vec![df_raw_pileup]
+        vec![df_raw_pileup.lazy().with_column(lit(0).alias("bin")).collect()?]
     };
 
     let (dfs_itvs, dfs_pileup): (Vec<LazyFrame>, Vec<Option<LazyFrame>>) = df_pileup_groups
         .into_par_iter()
         .map(|df_pileup_grp| {
-            let (df_itv, df_pileup) = nucflag_grp(df_pileup_grp, &cfg, &ctg, avg_cov).unwrap();
+            let (df_itv, df_pileup) = nucflag_grp(df_pileup_grp, &cfg, &ctg).unwrap();
             (df_itv.lazy(), df_pileup.map(|df| df.lazy()))
         })
         .unzip();

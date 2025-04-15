@@ -17,3 +17,5 @@ polars = "0.46.0"
 noodles = { version = "0.91.0", features = ["bam"] }
 nucflag = { path = "../core"}
 pyo3-polars = "0.20.0"
+simple_logger = { version = "5.0.0", features = ["stderr"] }
+log = "0.4.27"

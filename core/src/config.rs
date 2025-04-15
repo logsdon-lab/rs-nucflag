@@ -36,6 +36,8 @@ impl Default for GroupByANIConfig {
 #[derive(Deserialize, Debug, Clone)]
 /// Config for generated plots.
 pub struct GeneralConfig {
+    /// Display verbose logging.
+    pub verbose: bool,
     /// Number of bases to merge misassembly intervals.
     pub bp_merge: usize,
     /// Minimum misassembly size.
@@ -49,6 +51,7 @@ pub struct GeneralConfig {
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
+            verbose: true,
             bp_merge: 5000,
             bp_min: 1,
             bp_wg_window: 10_000_000,

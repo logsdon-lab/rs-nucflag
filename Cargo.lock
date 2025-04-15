@@ -1354,7 +1354,6 @@ dependencies = [
  "rayon",
  "rs-moddotplot",
  "serde",
- "simple_logger",
  "toml",
 ]
 
@@ -2069,12 +2068,14 @@ version = "0.1.0"
 dependencies = [
  "coitrees",
  "itertools",
+ "log",
  "noodles 0.91.0",
  "nucflag",
  "polars",
  "pyo3",
  "pyo3-polars",
  "rayon",
+ "simple_logger",
 ]
 
 [[package]]

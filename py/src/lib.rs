@@ -40,8 +40,15 @@ fn run_nucflag(
 ) -> PyResult<Vec<PyNucFlagResult>> {
     let cfg = read_cfg(cfg).map_err(|err| PyValueError::new_err(err.to_string()))?;
 
+    if cfg.general.verbose {
+        simple_logger::init_with_level(log::Level::Debug).expect("Cannot initialize logger.");
+    }
+
     // Set rayon threadpool
-    ThreadPoolBuilder::new().num_threads(threads);
+    ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
 
     let ctg_itvs: Vec<Interval<String>> = if bed.is_none() {
         // If no intervals, apply to whole genome based on header.
@@ -91,7 +98,7 @@ fn run_nucflag(
         .into_par_iter()
         .flat_map(|itv| {
             // Open the BAM file in read-only per thread.
-            let res = nucflag(aln, fasta, &itv, cfg.clone(), cfg.cov.baseline);
+            let res = nucflag(aln, fasta, &itv, cfg.clone());
             match res {
                 Ok(res) => Some(PyNucFlagResult {
                     ctg: itv.metadata,
@@ -101,7 +108,7 @@ fn run_nucflag(
                     regions: PyDataFrame(res.regions),
                 }),
                 Err(err) => {
-                    eprintln!("Error: {err}");
+                    log::error!("Error: {err}");
                     None
                 }
             }

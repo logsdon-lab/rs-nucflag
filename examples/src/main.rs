@@ -50,7 +50,7 @@ fn cli_fasta() -> Result<(), Box<dyn Error>> {
         .into_par_iter()
         .map(|itv| {
             // Open the BAM file in read-only per thread.
-            nucflag(bam, fasta, &itv, cfg.clone(), None).unwrap()
+            nucflag(bam, fasta, &itv, cfg.clone()).unwrap()
         })
         .collect();
 
@@ -94,7 +94,7 @@ fn _cli_no_fasta() -> Result<(), Box<dyn Error>> {
         .into_par_iter()
         .map(|itv| {
             // Open the BAM file in read-only per thread.
-            nucflag(bam, None::<&str>, &itv, cfg.clone(), None).unwrap()
+            nucflag(bam, None::<&str>, &itv, cfg.clone()).unwrap()
         })
         .collect();
 
