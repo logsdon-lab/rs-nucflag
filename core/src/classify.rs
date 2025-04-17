@@ -2,7 +2,7 @@ use core::str;
 use std::{path::Path, str::FromStr};
 
 use crate::{
-    binning::split_pileup,
+    binning::group_pileup_by_ani,
     config::Config,
     intervals::merge_overlapping_intervals,
     misassembly::MisassemblyType,
@@ -511,16 +511,12 @@ pub fn nucflag(
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
     let df_pileup_groups = if let (Some(fasta), Some(cfg_grp_by_ani)) = (fasta, &cfg.group_by_ani) {
-        split_pileup(
-            df_raw_pileup,
-            fasta,
-            itv,
-            cfg_grp_by_ani.window_size,
-            cfg_grp_by_ani.thr_dt_ident,
-        )?
-        .partition_by(["bin"], true)?
+        group_pileup_by_ani(df_raw_pileup, fasta, itv, cfg_grp_by_ani)?.partition_by(["bin"], true)?
     } else {
-        vec![df_raw_pileup.lazy().with_column(lit(0).alias("bin")).collect()?]
+        vec![df_raw_pileup
+            .lazy()
+            .with_column(lit(0).alias("bin"))
+            .collect()?]
     };
 
     let (dfs_itvs, dfs_pileup): (Vec<LazyFrame>, Vec<Option<LazyFrame>>) = df_pileup_groups

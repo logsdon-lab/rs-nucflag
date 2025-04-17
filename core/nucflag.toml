@@ -26,4 +26,6 @@ ratio_softclip = 0.5
 
 [group_by_ani]
 window_size = 5_000
+band_size = 20
 thr_dt_ident = 0.25
+min_grp_size = 100_000

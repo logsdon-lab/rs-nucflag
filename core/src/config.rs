@@ -10,7 +10,7 @@ pub struct Config {
     pub mismatch: Option<MismatchConfig>,
     /// Indel base config.
     pub indel: IndelConfig,
-    /// Softcliip base config.
+    /// Softclip base config.
     pub softclip: SoftClipConfig,
     /// Bin pileup based on self-identity. Requires fasta in input.
     pub group_by_ani: Option<GroupByANIConfig>,
@@ -20,15 +20,21 @@ pub struct Config {
 pub struct GroupByANIConfig {
     /// Size of window to calculate self-identity.
     pub window_size: usize,
+    /// Size of band along alignment matrix diagonal. Larger values will get longer distance relationships.
+    pub band_size: usize,
     /// Threshold change in percent identity to group intervals.
     pub thr_dt_ident: f32,
+    /// Minimum group size. Smaller groups are merged into larger groups of higher identity.
+    pub min_grp_size: usize,
 }
 
 impl Default for GroupByANIConfig {
     fn default() -> Self {
         Self {
             window_size: 2000,
+            band_size: 50,
             thr_dt_ident: 0.1,
+            min_grp_size: 50_000,
         }
     }
 }
