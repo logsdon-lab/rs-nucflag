@@ -4,7 +4,7 @@ use std::{path::Path, str::FromStr};
 use crate::{
     binning::group_pileup_by_ani,
     config::Config,
-    intervals::merge_overlapping_intervals,
+    intervals::merge_intervals,
     misassembly::MisassemblyType,
     peak::find_peaks,
     pileup::{AlignmentFile, PileupInfo},
@@ -128,16 +128,18 @@ fn merge_misassemblies(
     .into_iter()
     .fold(Vec::default(), |mut acc, (grp, grps)| {
         // Add base bp merge.
-        acc.extend(merge_overlapping_intervals(
+        acc.extend(merge_intervals(
             grps.into_iter().map(|(st, end, cov, status)| {
-                Interval::new(st as i32 - bp_merge, end as i32 + bp_merge, (status, cov))
+                Interval::new(st as i32, end as i32, (status, cov))
             }),
+            bp_merge,
+            |_, _| true,
             // Average coverage.
             |itv_1, itv_2| (itv_1.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2),
             |itv: Interval<(&str, u8)>| {
                 Interval::new(
-                    itv.first + bp_merge,
-                    itv.last - bp_merge,
+                    itv.first,
+                    itv.last,
                     (grp, itv.metadata.1),
                 )
             },
@@ -147,10 +149,10 @@ fn merge_misassemblies(
 
     // Merge overlapping intervals OVER status type choosing largest misassembly type.
     let final_misasm_itvs: COITree<(&str, u8), usize> = COITree::new(&if merge_across_type {
-        merge_overlapping_intervals(
-            merged_misasm_itvs
-                .into_iter()
-                .map(|itv| Interval::new(itv.first - bp_merge, itv.last + bp_merge, itv.metadata)),
+        merge_intervals(
+            merged_misasm_itvs.into_iter(),
+            bp_merge,
+            |_, _| true,
             |itv_1, itv_2| {
                 let largest_itv =
                     std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| itv_1.len().cmp(&itv_2.len()));
@@ -159,9 +161,7 @@ fn merge_misassemblies(
                     (itv_1.metadata.1 + itv_2.metadata.1) / 2,
                 )
             },
-            |itv: Interval<(&str, u8)>| {
-                Interval::new(itv.first + bp_merge, itv.last - bp_merge, itv.metadata)
-            },
+            |itv| itv,
         )
     } else {
         merged_misasm_itvs

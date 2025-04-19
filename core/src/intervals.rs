@@ -6,15 +6,19 @@ use std::collections::VecDeque;
 ///
 /// # Arguments
 /// * `intervals`: Intervals to merge. Elements are cloned.
-/// * `data_reducer`: Function to reduce metadata.
-/// * `data_finalizer`: Function to apply some final operation on intervals.
+/// * `dst`: Distance to merge over.
+/// * `fn_cmp`: Function to enforce additional check before merging.
+/// * `fn_reducer`: Function to reduce metadata.
+/// * `fn_finalizer`: Function to apply some final operation on intervals.
 ///
 /// # Returns
 /// * Merged overlapping intervals.
-pub fn merge_overlapping_intervals<I, T>(
+pub fn merge_intervals<I, T>(
     intervals: I,
-    data_reducer: impl Fn(&Interval<T>, &Interval<T>) -> T,
-    data_finalizer: impl Fn(Interval<T>) -> Interval<T>,
+    dst: i32,
+    fn_cmp: impl Fn(&Interval<T>, &Interval<T>) -> bool,
+    fn_reducer: impl Fn(&Interval<T>, &Interval<T>) -> T,
+    fn_finalizer: impl Fn(Interval<T>) -> Interval<T>,
 ) -> Vec<Interval<T>>
 where
     I: Iterator<Item = Interval<T>>,
@@ -43,17 +47,19 @@ where
         // (else) Third case:
         // 1-2
         // 1-2
-        if itv_1.last < itv_2.first {
-            merged.push(itv_1);
-            intervals.push_front(itv_2);
-        } else {
-            let new_data = data_reducer(&itv_1, &itv_2);
+        let dst_between = itv_2.first - itv_1.last;
+        let added_check = fn_cmp(&itv_1, &itv_2);
+        if (dst_between <= dst) & added_check  {
+            let new_data = fn_reducer(&itv_1, &itv_2);
             let merged_interval = Interval::new(itv_1.first, itv_2.last, new_data);
             intervals.push_front(merged_interval);
+        } else {
+            merged.push(itv_1);
+            intervals.push_front(itv_2); 
         }
     }
     // Apply finalizer function
-    merged.into_iter().map(data_finalizer).collect_vec()
+    merged.into_iter().map(fn_finalizer).collect_vec()
 }
 
 #[cfg(test)]
@@ -62,7 +68,7 @@ mod tests {
 
     use coitrees::Interval;
 
-    use super::merge_overlapping_intervals;
+    use super::merge_intervals;
 
     fn reduce_to_a<'a>(a: &Interval<usize>, _b: &Interval<usize>) -> usize {
         a.metadata
@@ -70,6 +76,10 @@ mod tests {
 
     fn noop(a: Interval<usize>) -> Interval<usize> {
         a
+    }
+
+    fn no_added_check<'a>(_a: &Interval<usize>, _b: &Interval<usize>) -> bool {
+        true
     }
 
     fn assert_itvs_equal<T: Clone + PartialEq + Debug>(
@@ -93,7 +103,7 @@ mod tests {
             Interval::new(3, 5, 2),
             Interval::new(6, 9, 3),
         ];
-        let merged_itvs = merge_overlapping_intervals(itvs.clone().into_iter(), reduce_to_a, noop);
+        let merged_itvs = merge_intervals(itvs.clone().into_iter(), 0, no_added_check, reduce_to_a, noop);
         assert_itvs_equal(&itvs, &merged_itvs);
     }
 
@@ -104,7 +114,7 @@ mod tests {
             Interval::new(3, 5, 2),
             Interval::new(6, 9, 3),
         ];
-        let merged_itvs = merge_overlapping_intervals(itvs.into_iter(), reduce_to_a, noop);
+        let merged_itvs = merge_intervals(itvs.into_iter(), 0, no_added_check, reduce_to_a, noop);
         let exp_itvs = vec![Interval::new(1, 5, 1), Interval::new(6, 9, 3)];
 
         assert_itvs_equal(&exp_itvs, &merged_itvs);
@@ -117,8 +127,27 @@ mod tests {
             Interval::new(6, 9, 3),
             Interval::new(3, 6, 2),
         ];
-        let merged_itvs = merge_overlapping_intervals(itvs.into_iter(), reduce_to_a, noop);
+        let merged_itvs = merge_intervals(itvs.into_iter(), 0, no_added_check, reduce_to_a, noop);
         let exp_itvs = vec![Interval::new(1, 9, 1)];
         assert_itvs_equal(&exp_itvs, &merged_itvs);
+    }
+
+    #[test]
+    fn test_merge_condition() {
+        let itvs = vec![
+            Interval::new(1, 2, 2),
+            Interval::new(3, 4, 2),
+            Interval::new(5, 6, 3),
+        ];
+        let exp_itvs = vec![Interval::new(1, 4, 2), Interval::new(5, 6, 3)];
+
+        let merged_itvs = merge_intervals(
+            itvs.clone().into_iter(),
+            0,
+            |a, b| (a.metadata % 2 == 0) & (b.metadata % 2 == 0),
+            reduce_to_a,
+            noop
+        );
+        assert_itvs_equal(&merged_itvs, &exp_itvs);
     }
 }
