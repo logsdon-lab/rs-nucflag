@@ -49,13 +49,13 @@ where
         // 1-2
         let dst_between = itv_2.first - itv_1.last;
         let added_check = fn_cmp(&itv_1, &itv_2);
-        if (dst_between <= dst) & added_check  {
+        if (dst_between <= dst) & added_check {
             let new_data = fn_reducer(&itv_1, &itv_2);
             let merged_interval = Interval::new(itv_1.first, itv_2.last, new_data);
             intervals.push_front(merged_interval);
         } else {
             merged.push(itv_1);
-            intervals.push_front(itv_2); 
+            intervals.push_front(itv_2);
         }
     }
     // Apply finalizer function
@@ -103,7 +103,13 @@ mod tests {
             Interval::new(3, 5, 2),
             Interval::new(6, 9, 3),
         ];
-        let merged_itvs = merge_intervals(itvs.clone().into_iter(), 0, no_added_check, reduce_to_a, noop);
+        let merged_itvs = merge_intervals(
+            itvs.clone().into_iter(),
+            0,
+            no_added_check,
+            reduce_to_a,
+            noop,
+        );
         assert_itvs_equal(&itvs, &merged_itvs);
     }
 
@@ -146,7 +152,7 @@ mod tests {
             0,
             |a, b| (a.metadata % 2 == 0) & (b.metadata % 2 == 0),
             reduce_to_a,
-            noop
+            noop,
         );
         assert_itvs_equal(&merged_itvs, &exp_itvs);
     }

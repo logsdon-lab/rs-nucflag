@@ -14,6 +14,31 @@ pub struct Config {
     pub softclip: SoftClipConfig,
     /// Bin pileup based on self-identity. Requires fasta in input.
     pub group_by_ani: Option<GroupByANIConfig>,
+    /// Minimum size of misassemblies.
+    pub minimum_size: Option<MinimumSizeConfig>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct MinimumSizeConfig {
+    pub collapse: usize,
+    pub misjoin: usize,
+    pub low_quality: usize,
+    pub false_dupe: usize,
+    pub softclip: usize,
+    pub indel: usize,
+}
+
+impl Default for MinimumSizeConfig {
+    fn default() -> Self {
+        Self {
+            collapse: usize::MIN,
+            misjoin: usize::MIN,
+            low_quality: usize::MIN,
+            false_dupe: 20_000,
+            softclip: usize::MIN,
+            indel: usize::MIN,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -32,8 +57,8 @@ impl Default for GroupByANIConfig {
     fn default() -> Self {
         Self {
             window_size: 2000,
-            band_size: 50,
-            thr_dt_ident: 0.1,
+            band_size: 31,
+            thr_dt_ident: 0.05,
             min_grp_size: 50_000,
         }
     }
@@ -46,12 +71,12 @@ pub struct GeneralConfig {
     pub verbose: bool,
     /// Number of bases to merge misassembly intervals.
     pub bp_merge: usize,
-    /// Minimum misassembly size.
-    pub bp_min: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
     pub bp_wg_window: usize,
     /// Merge across misassembly type.
     pub merge_across_type: bool,
+    /// Store pileup data. Toggle off to reduce memory usage.
+    pub store_pileup: bool,
 }
 
 impl Default for GeneralConfig {
@@ -59,9 +84,9 @@ impl Default for GeneralConfig {
         Self {
             verbose: true,
             bp_merge: 5000,
-            bp_min: 1,
             bp_wg_window: 10_000_000,
             merge_across_type: false,
+            store_pileup: true,
         }
     }
 }
@@ -73,12 +98,8 @@ pub struct CoverageConfig {
     pub n_zscores_high: f32,
     /// Number of z-scores below the median to be considered a misassembly.
     pub n_zscores_low: f32,
-    /// Number of z-scores below the median to be considered a false-dupe.
-    pub n_zscores_false_dupe: f32,
     /// Baseline coverage used for false-duplication classification. Defaults to average coverage of region.
     pub baseline: Option<u64>,
-    /// Store coverage data. Toggle off to reduce memory usage.
-    pub store_coverage: bool,
 }
 
 impl Default for CoverageConfig {
@@ -86,9 +107,7 @@ impl Default for CoverageConfig {
         Self {
             n_zscores_high: 3.0,
             n_zscores_low: 3.4,
-            n_zscores_false_dupe: 2.5,
             baseline: None,
-            store_coverage: true,
         }
     }
 }

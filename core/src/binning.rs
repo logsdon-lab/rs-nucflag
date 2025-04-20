@@ -1,7 +1,7 @@
 use core::str;
 use std::{collections::HashMap, path::Path};
 
-use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
+use coitrees::{COITree, Interval, IntervalTree};
 use itertools::Itertools;
 use noodles::{
     core::{Position, Region},
@@ -11,7 +11,7 @@ use ordered_float::OrderedFloat;
 use polars::prelude::*;
 use rs_moddotplot::{compute_local_seq_self_identity, compute_seq_self_identity};
 
-use crate::{config::GroupByANIConfig, intervals::merge_intervals};
+use crate::config::GroupByANIConfig;
 
 pub fn group_pileup_by_ani(
     mut df: DataFrame,
@@ -23,8 +23,8 @@ pub fn group_pileup_by_ani(
     let (st, end): (i32, i32) = (itv.first, itv.last);
     let window_size = cfg.window_size;
     let band_size = cfg.band_size;
-    let thr_dt_ident = cfg.thr_dt_ident;
-    let min_grp_size = cfg.min_grp_size.try_into()?;
+    let thr_dt_ident = OrderedFloat(cfg.thr_dt_ident);
+    let min_grp_size = cfg.min_grp_size;
 
     let mut reader_fasta = fasta::io::indexed_reader::Builder::default().build_from_path(fasta)?;
     let position = Position::new(itv.first.try_into()?).unwrap()
@@ -50,7 +50,9 @@ pub fn group_pileup_by_ani(
                 ignore_bins: 1,
             }),
         );
-        log::info!("Grouping self-identity intervals in {ctg}:{st}-{end} by a change of {thr_dt_ident}%.");
+        log::info!(
+            "Grouping self-identity intervals in {ctg}:{st}-{end} by a change of {thr_dt_ident}%."
+        );
 
         // Group ident values.
         // Sort first to ensure that sequence identiy is in ascending order. 
@@ -66,7 +68,6 @@ pub fn group_pileup_by_ani(
         let mut group_sizes: HashMap<u64, usize> = HashMap::new();
         let mut group_n: u64 = 0;
         let mut group_size: usize = 0;
-        let thr_dt_ident = OrderedFloat(thr_dt_ident);
         while let Some((size, ident)) = all_idents.next() {
             let Some((_, next_ident)) = all_idents.peek() else {
                 groups.insert(ident, group_n);
@@ -83,31 +84,44 @@ pub fn group_pileup_by_ani(
                 group_n += 1;
             }
         }
+
+        log::info!("Merging small intervals less than {min_grp_size}bp.");
+        // Iterate through small groups and try to find larger group of higher identity to merge into.
+        let replacement_groups: HashMap<u64, u64> = group_sizes
+            .iter()
+            .filter(|grp| *grp.1 < min_grp_size)
+            .flat_map(|(grp, _)| {
+                let mut repl_grp = *grp;
+                // Find next group that is higher in identity and satifies grp_len.
+                loop {
+                    let grp_len = group_sizes.get(&repl_grp)?;
+                    if *grp_len < min_grp_size {
+                        repl_grp += 1
+                    } else {
+                        return Some((*grp, repl_grp));
+                    }
+                }
+            })
+            .collect();
+        
         // Remove groups that don't meet grp len.
         log::info!("Split {ctg}:{st}-{end} into {group_n} region(s).");
-        log::info!("Merging small intervals less than {min_grp_size}bp.");
 
-        let intervals = merge_intervals(
-            bed_local_ident
-            .into_iter()
-            .map(|row| {
-                // Adjust coordinates.
-                Interval::new(
-                    row.start as i32 + st,
-                    row.end as i32 + st,
-                    groups[&OrderedFloat(row.avg_perc_id_by_events)],
-                )
-            }),
-            1,
-            // Merge if equal or if second interval is smaller than min group size.
-            |a, b| (a.metadata == b.metadata) | (b.len() < min_grp_size),
-            |a, _| a.metadata,
-            |i| i
-        );
-
-        COITree::new(&intervals)
+        COITree::new(
+            &bed_local_ident
+                .into_iter()
+                .map(|row| {
+                    // Adjust coordinates.
+                    let grp = groups[&OrderedFloat(row.avg_perc_id_by_events)];
+                    Interval::new(
+                        row.start as i32 + st,
+                        row.end as i32 + st,
+                        *replacement_groups.get(&grp).unwrap_or(&grp),
+                    )
+                })
+                .collect::<Vec<Interval<u64>>>(),
+        )
     };
-
     // Add groups to pileup.
     // N's will cause offset so need to detect overlaps.
     let ident_groups: Vec<u64> = df
@@ -117,10 +131,10 @@ pub fn group_pileup_by_ani(
         .into_iter()
         .flatten()
         .map(|p| {
-            let mut ident = None;
-            itv_idents.query(p, p + 1, |itv| ident = Some(itv.metadata));
+            let mut group = None;
+            itv_idents.query(p, p + 1, |itv| group = Some(itv.metadata));
             // TODO: This needs to be checked.
-            ident.unwrap_or_default()
+            group.unwrap_or_default()
         })
         .collect();
 

@@ -1,9 +1,9 @@
 use core::str;
-use std::{path::Path, str::FromStr};
+use std::{collections::HashMap, path::Path, str::FromStr};
 
 use crate::{
     binning::group_pileup_by_ani,
-    config::Config,
+    config::{Config, MinimumSizeConfig},
     intervals::merge_intervals,
     misassembly::MisassemblyType,
     peak::find_peaks,
@@ -96,7 +96,7 @@ fn merge_pileup_info(
 fn merge_misassemblies(
     df_itvs: DataFrame,
     bp_merge: i32,
-    bp_filter: i32,
+    cfg_min_size: &MinimumSizeConfig,
     merge_across_type: bool,
 ) -> eyre::Result<LazyFrame> {
     let itvs_all: Vec<(u64, u64, u8, String)> = multizip((
@@ -129,20 +129,13 @@ fn merge_misassemblies(
     .fold(Vec::default(), |mut acc, (grp, grps)| {
         // Add base bp merge.
         acc.extend(merge_intervals(
-            grps.into_iter().map(|(st, end, cov, status)| {
-                Interval::new(st as i32, end as i32, (status, cov))
-            }),
+            grps.into_iter()
+                .map(|(st, end, cov, status)| Interval::new(st as i32, end as i32, (status, cov))),
             bp_merge,
             |_, _| true,
             // Average coverage.
             |itv_1, itv_2| (itv_1.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2),
-            |itv: Interval<(&str, u8)>| {
-                Interval::new(
-                    itv.first,
-                    itv.last,
-                    (grp, itv.metadata.1),
-                )
-            },
+            |itv: Interval<(&str, u8)>| Interval::new(itv.first, itv.last, (grp, itv.metadata.1)),
         ));
         acc
     });
@@ -167,11 +160,22 @@ fn merge_misassemblies(
         merged_misasm_itvs
     });
 
+    let thr_minimum_sizes: HashMap<&str, u64> = HashMap::from_iter([
+        ("good", u64::MAX),
+        ("collapse", cfg_min_size.collapse.try_into()?),
+        ("false_dupe", cfg_min_size.false_dupe.try_into()?),
+        ("indel", cfg_min_size.indel.try_into()?),
+        ("low_quality", cfg_min_size.low_quality.try_into()?),
+        ("misjoin", cfg_min_size.misjoin.try_into()?),
+        ("softclip", cfg_min_size.softclip.try_into()?),
+    ]);
+
     // Convert good columns to misassembly types.
     let mut sts = Vec::with_capacity(itvs_all.len());
     let mut ends = Vec::with_capacity(itvs_all.len());
     let mut covs = Vec::with_capacity(itvs_all.len());
     let mut statuses = Vec::with_capacity(itvs_all.len());
+    let mut minimum_sizes = Vec::with_capacity(itvs_all.len());
     for (st, end, cov, status) in itvs_all {
         let st = st.try_into()?;
         let end = end.try_into()?;
@@ -196,10 +200,12 @@ fn merge_misassemblies(
         covs.push(cov);
 
         let Some((new_status, _)) = largest_ovl else {
+            minimum_sizes.push(thr_minimum_sizes[status.as_str()]);
             statuses.push(status);
             continue;
         };
 
+        minimum_sizes.push(thr_minimum_sizes[new_status]);
         statuses.push(new_status.to_owned());
     }
     let df_itvs_all = DataFrame::new(vec![
@@ -207,6 +213,7 @@ fn merge_misassemblies(
         Column::new("end".into(), ends),
         Column::new("cov".into(), covs),
         Column::new("status".into(), statuses),
+        Column::new("thr_size".into(), minimum_sizes),
     ])?;
 
     Ok(df_itvs_all
@@ -219,12 +226,13 @@ fn merge_misassemblies(
             col("end").max(),
             col("cov").median(),
             col("status").first(),
+            col("thr_size").first(),
         ])
         // Reset intervals smaller than filter
         .with_column(
-            when((col("end") - col("st")).gt_eq(lit(bp_filter)))
-                .then(col("status"))
-                .otherwise(lit("good"))
+            when((col("end") - col("st")).lt_eq(col("thr_size")))
+                .then(lit("good"))
+                .otherwise(col("status"))
                 .alias("status"),
         )
         // Then reduce final interval groups to min/max.
@@ -295,12 +303,11 @@ fn classify_peaks(
             )
             .then(lit("misjoin"))
             // false_dupe
-            // Region with half of the expected coverage, n-zscores less than the global mean, and zero-mapq due to multi-mapping.
+            // Region with half of the expected coverage and zero-mapq due to multi-mapping.
             // Either a duplicated contig, duplicated region, or an SV (large insertion of repetive region).
             .when(
                 col("cov")
                     .lt_eq(lit(median_cov / 2))
-                    .and(col("cov_zscore").lt_eq(lit(-cfg.cov.n_zscores_false_dupe)))
                     .and(col("mapq").eq(lit(0))),
             )
             .then(lit("false_dupe"))
@@ -384,7 +391,7 @@ fn classify_peaks(
         .drop([col("group")])
         .collect()?;
 
-    Ok((df_itvs, cfg.cov.store_coverage.then_some(df_pileup)))
+    Ok((df_itvs, cfg.general.store_pileup.then_some(df_pileup)))
 }
 
 fn nucflag_grp(
@@ -511,7 +518,8 @@ pub fn nucflag(
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
     let df_pileup_groups = if let (Some(fasta), Some(cfg_grp_by_ani)) = (fasta, &cfg.group_by_ani) {
-        group_pileup_by_ani(df_raw_pileup, fasta, itv, cfg_grp_by_ani)?.partition_by(["bin"], true)?
+        group_pileup_by_ani(df_raw_pileup, fasta, itv, cfg_grp_by_ani)?
+            .partition_by(["bin"], true)?
     } else {
         vec![df_raw_pileup
             .lazy()
@@ -530,7 +538,7 @@ pub fn nucflag(
         .sort(["st"], Default::default())
         .collect()?;
 
-    let df_pileup = if cfg.cov.store_coverage {
+    let df_pileup = if cfg.general.store_pileup {
         Some(
             concat(
                 dfs_pileup.into_iter().flatten().collect::<Vec<LazyFrame>>(),
@@ -543,53 +551,56 @@ pub fn nucflag(
         None
     };
 
-    let bp_filter: i32 = cfg.general.bp_min.try_into()?;
     let bp_merge: i32 = cfg.general.bp_merge.try_into()?;
 
     // Then merge and filter.
     log::info!("Merging intervals in {ctg}:{st}-{end}.");
-    let df_itvs_final =
-        merge_misassemblies(df_itvs, bp_merge, bp_filter, cfg.general.merge_across_type)?
-            .with_columns([
-                lit(ctg.clone()).alias("chrom"),
-                col("st").alias("thickStart"),
-                col("end").alias("thickEnd"),
-                lit("+").alias("strand"),
-                // Convert statuses into colors.
-                col("status")
-                    .map(
-                        |statuses| {
-                            Ok(Some(Column::new(
-                                "itemRgb".into(),
-                                statuses
-                                    .str()?
-                                    .iter()
-                                    .flatten()
-                                    .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
-                                    .collect::<Vec<&str>>(),
-                            )))
-                        },
-                        SpecialEq::same_type(),
-                    )
-                    .alias("itemRgb"),
-            ])
-            .rename(
-                ["st", "end", "status", "cov"],
-                ["chromStart", "chromEnd", "name", "score"],
-                true,
+    let df_itvs_final = merge_misassemblies(
+        df_itvs,
+        bp_merge,
+        &cfg.minimum_size.unwrap_or_default(),
+        cfg.general.merge_across_type,
+    )?
+    .with_columns([
+        lit(ctg.clone()).alias("chrom"),
+        col("st").alias("thickStart"),
+        col("end").alias("thickEnd"),
+        lit("+").alias("strand"),
+        // Convert statuses into colors.
+        col("status")
+            .map(
+                |statuses| {
+                    Ok(Some(Column::new(
+                        "itemRgb".into(),
+                        statuses
+                            .str()?
+                            .iter()
+                            .flatten()
+                            .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
+                            .collect::<Vec<&str>>(),
+                    )))
+                },
+                SpecialEq::same_type(),
             )
-            .select([
-                col("chrom"),
-                col("chromStart"),
-                col("chromEnd"),
-                col("name"),
-                col("score"),
-                col("strand"),
-                col("thickStart"),
-                col("thickEnd"),
-                col("itemRgb"),
-            ])
-            .collect()?;
+            .alias("itemRgb"),
+    ])
+    .rename(
+        ["st", "end", "status", "cov"],
+        ["chromStart", "chromEnd", "name", "score"],
+        true,
+    )
+    .select([
+        col("chrom"),
+        col("chromStart"),
+        col("chromEnd"),
+        col("name"),
+        col("score"),
+        col("strand"),
+        col("thickStart"),
+        col("thickEnd"),
+        col("itemRgb"),
+    ])
+    .collect()?;
 
     let (n_misassemblies, _) = df_itvs_final
         .select(["name"])?
