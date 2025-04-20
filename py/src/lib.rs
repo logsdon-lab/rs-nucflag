@@ -1,7 +1,7 @@
 use coitrees::Interval;
 use core::str;
 use nucflag::{
-    classify::nucflag,
+    nucflag,
     io::{read_bed, read_cfg},
     pileup::AlignmentFile,
 };

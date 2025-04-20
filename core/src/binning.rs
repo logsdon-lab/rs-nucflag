@@ -54,7 +54,7 @@ pub fn group_pileup_by_ani(
         );
 
         // Group ident values.
-        // Sort first to ensure that sequence identiy is in ascending order. 
+        // Sort first to ensure that sequence identiy is in ascending order.
         // We use ordered floats with treat NaNs differently. We should never have a NaN.
         let mut all_idents = bed_local_ident
             .iter()
@@ -102,7 +102,7 @@ pub fn group_pileup_by_ani(
                 }
             })
             .collect();
-        
+
         // Remove groups that don't meet grp len.
         log::info!("Split {ctg}:{st}-{end} into {group_n} region(s).");
 

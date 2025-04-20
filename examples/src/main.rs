@@ -2,7 +2,8 @@ use std::error::Error;
 
 use coitrees::Interval;
 use nucflag::{
-    classify::{nucflag, NucFlagResult},
+    nucflag,
+    classify::NucFlagResult,
     config::Config,
     io::{read_bed, read_cfg, write_tsv},
 };

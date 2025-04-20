@@ -23,12 +23,21 @@ impl Config {
     pub(crate) fn merge(self, other: Config) -> Self {
         Self {
             general: self.general,
-            cov: CoverageConfig { rolling_mean_window: other.cov.rolling_mean_window, ..self.cov },
-            mismatch: MismatchConfig { rolling_mean_window: other.mismatch.rolling_mean_window, ..self.mismatch },
-            indel: IndelConfig { rolling_mean_window: other.indel.rolling_mean_window, ..self.indel },
+            cov: CoverageConfig {
+                rolling_mean_window: other.cov.rolling_mean_window,
+                ..self.cov
+            },
+            mismatch: MismatchConfig {
+                rolling_mean_window: other.mismatch.rolling_mean_window,
+                ..self.mismatch
+            },
+            indel: IndelConfig {
+                rolling_mean_window: other.indel.rolling_mean_window,
+                ..self.indel
+            },
             softclip: self.softclip,
             group_by_ani: self.group_by_ani,
-            minimum_size: other.minimum_size
+            minimum_size: other.minimum_size,
         }
     }
 }
@@ -146,7 +155,7 @@ impl Default for MismatchConfig {
         Self {
             n_zscores_high: 3.4,
             ratio_het: 0.5,
-            rolling_mean_window: Some(21)
+            rolling_mean_window: Some(21),
         }
     }
 }

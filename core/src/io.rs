@@ -2,7 +2,8 @@ use std::{
     fmt::Debug,
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
-    path::Path, str::FromStr,
+    path::Path,
+    str::FromStr,
 };
 
 use coitrees::Interval;
@@ -98,17 +99,17 @@ pub fn read_cfg(path: Option<impl AsRef<Path>>, preset: Option<&str>) -> eyre::R
         (None, Some(preset)) => {
             let preset = preset?;
             Ok(Config::from(preset))
-        },
+        }
         (Some(cfg_path), None) => {
             let cfg_str = std::fs::read_to_string(cfg_path)?;
             toml::from_str(&cfg_str).map_err(Into::into)
-        },
+        }
         (Some(cfg_path), Some(preset)) => {
             let preset = preset?;
             let cfg_str = std::fs::read_to_string(cfg_path)?;
             let cfg: Config = toml::from_str(&cfg_str)?;
             let preset_cfg = Config::from(preset);
             Ok(cfg.merge(preset_cfg))
-        },
+        }
     }
 }

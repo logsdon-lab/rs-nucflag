@@ -7,3 +7,7 @@ pub mod misassembly;
 pub mod peak;
 pub mod pileup;
 pub mod preset;
+
+mod nucflag;
+
+pub use nucflag::nucflag;

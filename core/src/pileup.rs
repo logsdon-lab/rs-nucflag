@@ -1,20 +1,16 @@
 use itertools::Itertools;
 use noodles::{
-    core::Region,
+    bam, bgzf, cram,
+    core::{Region, Position},
+    fasta::{self, repository},
     sam::{
         alignment::record::{cigar::op::Kind, Cigar},
         Header,
     },
 };
 use std::{fs::File, path::Path};
-
 use coitrees::{GenericInterval, Interval};
-use noodles::{
-    bam, bgzf,
-    core::Position,
-    cram,
-    fasta::{self, repository},
-};
+
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PileupInfo {
@@ -43,14 +39,7 @@ impl PileupInfo {
         let midpt = length / 2;
         if length % 2 == 0 {
             let midpt = midpt.checked_sub(1).map(|midpt| midpt..=midpt)?;
-            Some(
-                self.mapq
-                    .iter()
-                    .sorted()
-                    .get(midpt)
-                    .sum::<u8>()
-                    .div_ceil(2),
-            )
+            Some(self.mapq.iter().sorted().get(midpt).sum::<u8>().div_ceil(2))
         } else {
             self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
         }
