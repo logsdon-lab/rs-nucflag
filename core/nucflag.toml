@@ -12,11 +12,11 @@ n_zscores_false_dupe = 2.0
 
 [mismatch]
 n_zscores_high = 3.4
-ratio_het = 0.2
+ratio_het = 0.5
 
 [indel]
 n_zscores_high = 3.4
-ratio_indel = 0.8
+ratio_indel = 0.5
 rolling_mean_window = 3
 
 [softclip]

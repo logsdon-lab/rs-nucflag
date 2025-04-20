@@ -42,11 +42,12 @@ impl PileupInfo {
         let length = self.mapq.len();
         let midpt = length / 2;
         if length % 2 == 0 {
+            let midpt = midpt.checked_sub(1).map(|midpt| midpt..=midpt)?;
             Some(
                 self.mapq
                     .iter()
                     .sorted()
-                    .get(midpt..=midpt + 1)
+                    .get(midpt)
                     .sum::<u8>()
                     .div_ceil(2),
             )

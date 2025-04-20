@@ -7,7 +7,7 @@ pub struct Config {
     /// Coverage config.
     pub cov: CoverageConfig,
     /// Mismatch base config.
-    pub mismatch: Option<MismatchConfig>,
+    pub mismatch: MismatchConfig,
     /// Indel base config.
     pub indel: IndelConfig,
     /// Softclip base config.
@@ -16,6 +16,21 @@ pub struct Config {
     pub group_by_ani: Option<GroupByANIConfig>,
     /// Minimum size of misassemblies.
     pub minimum_size: Option<MinimumSizeConfig>,
+}
+
+impl Config {
+    /// Merge two config structs take self as base. Only used for optional config sections.
+    pub(crate) fn merge(self, other: Config) -> Self {
+        Self {
+            general: self.general,
+            cov: CoverageConfig { rolling_mean_window: other.cov.rolling_mean_window, ..self.cov },
+            mismatch: MismatchConfig { rolling_mean_window: other.mismatch.rolling_mean_window, ..self.mismatch },
+            indel: IndelConfig { rolling_mean_window: other.indel.rolling_mean_window, ..self.indel },
+            softclip: self.softclip,
+            group_by_ani: self.group_by_ani,
+            minimum_size: other.minimum_size
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -100,13 +115,16 @@ pub struct CoverageConfig {
     pub n_zscores_low: f32,
     /// Baseline coverage used for false-duplication classification. Defaults to average coverage of region.
     pub baseline: Option<u64>,
+    /// Window to apply rolling mean filter. Reduces noise.
+    pub rolling_mean_window: Option<usize>,
 }
 
 impl Default for CoverageConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 3.0,
-            n_zscores_low: 3.4,
+            n_zscores_high: 5.0,
+            n_zscores_low: 3.0,
+            rolling_mean_window: Some(21),
             baseline: None,
         }
     }
@@ -119,13 +137,16 @@ pub struct MismatchConfig {
     pub n_zscores_high: f32,
     /// Ratio used to split hets from small collapses.
     pub ratio_het: f32,
+    /// Window to apply rolling mean filter. Reduces noise.
+    pub rolling_mean_window: Option<usize>,
 }
 
 impl Default for MismatchConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.4,
-            ratio_het: 0.2,
+            ratio_het: 0.5,
+            rolling_mean_window: Some(21)
         }
     }
 }
@@ -145,8 +166,8 @@ impl Default for IndelConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 4.0,
-            ratio_indel: 0.8,
-            rolling_mean_window: Some(3),
+            ratio_indel: 0.5,
+            rolling_mean_window: Some(21),
         }
     }
 }

@@ -21,76 +21,55 @@ fn merge_pileup_info(
     end: u64,
     cfg: &Config,
 ) -> eyre::Result<DataFrame> {
-    let cols = if cfg.mismatch.is_some() {
-        let (
-            mut cov_cnts,
-            mut mismatch_cnts,
-            mut mapq_cnts,
-            mut supp_cnts,
-            mut indel_cnts,
-            mut softclip_cnts,
-        ) = (
-            Vec::with_capacity(pileup.len()),
-            Vec::with_capacity(pileup.len()),
-            Vec::with_capacity(pileup.len()),
-            Vec::with_capacity(pileup.len()),
-            Vec::with_capacity(pileup.len()),
-            Vec::with_capacity(pileup.len()),
-        );
-        for p in pileup.into_iter() {
-            cov_cnts.push(p.n_cov);
-            mismatch_cnts.push(p.n_mismatch);
-            mapq_cnts.push(p.median_mapq().unwrap_or(0));
-            supp_cnts.push(p.n_supp);
-            indel_cnts.push(p.n_indel);
-            softclip_cnts.push(p.n_softclip);
-        }
-        vec![
-            Column::new("pos".into(), st..end + 1),
-            Column::new("cov".into(), cov_cnts),
-            Column::new("mismatch".into(), mismatch_cnts),
-            Column::new("mapq".into(), mapq_cnts),
-            Column::new("supp".into(), supp_cnts),
-            Column::new("indel".into(), indel_cnts),
-            Column::new("softclip".into(), softclip_cnts),
-        ]
-    } else {
-        let (mut cov_cnts, mut mapq_cnts, mut supp_cnts, mut indel_cnts, mut softclip_cnts) = (
-            Vec::with_capacity(pileup.len()),
-            Vec::with_capacity(pileup.len()),
-            Vec::with_capacity(pileup.len()),
-            Vec::with_capacity(pileup.len()),
-            Vec::with_capacity(pileup.len()),
-        );
-        for p in pileup.into_iter() {
-            cov_cnts.push(p.n_cov);
-            mapq_cnts.push(p.median_mapq().unwrap_or(0));
-            supp_cnts.push(p.n_supp);
-            indel_cnts.push(p.n_indel);
-            softclip_cnts.push(p.n_softclip);
-        }
-        vec![
-            Column::new("pos".into(), st..end + 1),
-            Column::new("cov".into(), cov_cnts),
-            Column::new("mapq".into(), mapq_cnts),
-            Column::new("supp".into(), supp_cnts),
-            Column::new("indel".into(), indel_cnts),
-            Column::new("softclip".into(), softclip_cnts),
-        ]
-    };
-    let df = DataFrame::new(cols)?;
-    if let Some(window_size) = cfg.indel.rolling_mean_window {
-        Ok(df
-            .lazy()
-            .with_column(col("indel").rolling_mean(RollingOptionsFixedWindow {
+    let (
+        mut cov_cnts,
+        mut mismatch_cnts,
+        mut mapq_cnts,
+        mut supp_cnts,
+        mut indel_cnts,
+        mut softclip_cnts,
+    ) = (
+        Vec::with_capacity(pileup.len()),
+        Vec::with_capacity(pileup.len()),
+        Vec::with_capacity(pileup.len()),
+        Vec::with_capacity(pileup.len()),
+        Vec::with_capacity(pileup.len()),
+        Vec::with_capacity(pileup.len()),
+    );
+    for p in pileup.into_iter() {
+        cov_cnts.push(p.n_cov);
+        mismatch_cnts.push(p.n_mismatch);
+        mapq_cnts.push(p.median_mapq().unwrap_or(0));
+        supp_cnts.push(p.n_supp);
+        indel_cnts.push(p.n_indel);
+        softclip_cnts.push(p.n_softclip);
+    }
+    
+    let mut lf = DataFrame::new(vec![
+        Column::new("pos".into(), st..end + 1),
+        Column::new("cov".into(), cov_cnts),
+        Column::new("mismatch".into(), mismatch_cnts),
+        Column::new("mapq".into(), mapq_cnts),
+        Column::new("supp".into(), supp_cnts),
+        Column::new("indel".into(), indel_cnts),
+        Column::new("softclip".into(), softclip_cnts),
+    ])?.lazy();
+
+    for (colname, window_size) in [
+        ("cov", cfg.cov.rolling_mean_window),
+        ("mismatch", cfg.mismatch.rolling_mean_window),
+        ("indel", cfg.indel.rolling_mean_window),
+    ] {
+        if let Some(window_size) = window_size {
+            lf = lf
+            .with_column(col(colname).rolling_mean(RollingOptionsFixedWindow {
                 window_size,
                 center: true,
                 ..Default::default()
             }))
-            .collect()?)
-    } else {
-        Ok(df)
+        };
     }
+    Ok(lf.collect()?)
 }
 
 fn merge_misassemblies(
@@ -313,27 +292,23 @@ fn classify_peaks(
             .then(lit("false_dupe"))
             .otherwise(col("status"))
             .alias("status"),
-        );
-
-    let lf_pileup = if let Some(cfg_mismatch) = &cfg.mismatch {
-        lf_pileup.with_column(
+        )
+        .with_column(
             // low_quality
             // Regions with high mismatch peak and het ratio.
             when(
                 col("mismatch_ratio")
-                    .gt_eq(lit(cfg_mismatch.ratio_het))
+                    .gt_eq(lit(cfg.mismatch.ratio_het))
                     .and(col("mismatch_peak").eq(lit("high"))),
             )
             .then(lit("low_quality"))
             .otherwise(col("status"))
             .alias("status"),
-        )
-    } else {
-        lf_pileup
-    };
+        );
 
-    let pileup_cols = if cfg.mismatch.is_some() {
-        vec![
+    let df_pileup = lf_pileup
+        .with_column(lit(ctg).alias("chrom"))
+        .select([
             col("chrom"),
             col("pos"),
             col("cov"),
@@ -348,37 +323,13 @@ fn classify_peaks(
             col("indel_zscore"),
             col("softclip_zscore"),
             col("bin"),
-        ]
-    } else {
-        vec![
-            col("chrom"),
-            col("pos"),
-            col("cov"),
-            col("mapq"),
-            col("status"),
-            col("indel"),
-            col("supp"),
-            col("softclip"),
-            col("cov_zscore"),
-            col("indel_zscore"),
-            col("softclip_zscore"),
-            col("bin"),
-        ]
-    };
-    let df_pileup = lf_pileup
-        .with_column(lit(ctg).alias("chrom"))
-        .select(pileup_cols)
+        ])
         .collect()?;
 
     // Construct intervals.
     // Store [st,end,type,cov]
-    let itv_cols = if cfg.mismatch.is_some() {
-        vec!["pos", "cov", "mismatch", "status"]
-    } else {
-        vec!["pos", "cov", "status"]
-    };
     let df_itvs = df_pileup
-        .select(itv_cols)?
+        .select(["pos", "cov", "mismatch", "status"])?
         .lazy()
         .with_column(col("status").rle_id().alias("group"))
         .group_by([col("group")])
@@ -428,22 +379,18 @@ fn nucflag_grp(
         JoinArgs::new(JoinType::Left),
     );
 
-    // Optionally, call peaks in mismatch-base signal.
-    let lf_cov_peaks = if let Some(cfg_mismatch) = &cfg.mismatch {
-        let lf_mismatch_peaks = find_peaks(
-            df_pileup.select(["pos", "mismatch"])?,
-            cfg_mismatch.n_zscores_high,
-            cfg_mismatch.n_zscores_high,
-        )?;
-        lf_cov_peaks.join(
-            lf_mismatch_peaks,
-            [col("pos")],
-            [col("pos")],
-            JoinArgs::new(JoinType::Left),
-        )
-    } else {
-        lf_cov_peaks
-    };
+    // Call peaks in mismatch-base signal.
+    let lf_mismatch_peaks = find_peaks(
+        df_pileup.select(["pos", "mismatch"])?,
+        cfg.mismatch.n_zscores_high,
+        cfg.mismatch.n_zscores_high,
+    )?;
+    let lf_cov_peaks =lf_cov_peaks.join(
+        lf_mismatch_peaks,
+        [col("pos")],
+        [col("pos")],
+        JoinArgs::new(JoinType::Left),
+    );
 
     // Detect indel peaks.
     let lf_softclip_peaks = find_peaks(
@@ -465,17 +412,12 @@ fn nucflag_grp(
         [col("pos")],
         [col("pos")],
         JoinArgs::new(JoinType::Left),
+    ).with_column(
+        // Calculate het ratio.
+        (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+            .alias("mismatch_ratio"),
     );
 
-    // Calculate het ratio.
-    let lf_pileup = if cfg.mismatch.is_some() {
-        lf_pileup.with_column(
-            (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
-                .alias("mismatch_ratio"),
-        )
-    } else {
-        lf_pileup
-    };
 
     // Add supplementary and indel counts.
     let lf_pileup = lf_pileup.join(
@@ -498,7 +440,7 @@ fn nucflag_grp(
 /// * `aln`: Input BAM/CRAM file path. Should be indexed.  
 /// * `fasta`: Input BAM file path. Required with CRAM. Also used for region binning.  
 /// * `itv`: Interval to check.
-/// * `cfg`: Peak-calling configuration.
+/// * `cfg`: Peak-calling configuration. See [`Preset`] for configuration based on sequencing data type.
 ///
 /// # Returns
 /// * [`NucFlagResult`]

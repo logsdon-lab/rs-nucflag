@@ -20,15 +20,14 @@ pub fn group_pileup_by_ani(
     cfg: &GroupByANIConfig,
 ) -> eyre::Result<DataFrame> {
     let ctg = itv.metadata.clone();
-    let (st, end): (i32, i32) = (itv.first, itv.last);
+    let (st, end): (i32, i32) = (itv.first.clamp(1, i32::MAX), itv.last);
     let window_size = cfg.window_size;
     let band_size = cfg.band_size;
     let thr_dt_ident = OrderedFloat(cfg.thr_dt_ident);
     let min_grp_size = cfg.min_grp_size;
 
     let mut reader_fasta = fasta::io::indexed_reader::Builder::default().build_from_path(fasta)?;
-    let position = Position::new(itv.first.try_into()?).unwrap()
-        ..=Position::new(itv.last.try_into()?).unwrap();
+    let position = Position::new(st.try_into()?).unwrap()..=Position::new(end.try_into()?).unwrap();
     let region = Region::new(itv.metadata.clone(), position);
     let seq = reader_fasta.query(&region)?;
 

@@ -30,19 +30,22 @@ pub struct PyNucFlagResult {
 
 /// Classify a missassembly.
 #[pyfunction]
-#[pyo3(signature = (aln, fasta = None, bed = None, threads = 1, cfg = None))]
+#[pyo3(signature = (aln, fasta = None, bed = None, threads = 1, cfg = None, preset = None))]
 fn run_nucflag(
     aln: &str,
     fasta: Option<&str>,
     bed: Option<&str>,
     threads: usize,
     cfg: Option<&str>,
+    preset: Option<&str>,
 ) -> PyResult<Vec<PyNucFlagResult>> {
-    let cfg = read_cfg(cfg).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let cfg = read_cfg(cfg, preset).map_err(|err| PyValueError::new_err(err.to_string()))?;
 
     if cfg.general.verbose {
         simple_logger::init_with_level(log::Level::Debug).expect("Cannot initialize logger.");
     }
+
+    log::info!("Using config:\n{cfg:#?}");
 
     // Set rayon threadpool
     ThreadPoolBuilder::new()

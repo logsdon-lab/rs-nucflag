@@ -32,7 +32,7 @@ fn cli_fasta() -> Result<(), Box<dyn Error>> {
         .get(5)
         .map(|arg| arg.parse::<usize>())
         .unwrap_or(Ok(1))?;
-    let cfg: Config = read_cfg(config)?;
+    let cfg: Config = read_cfg(config, None)?;
 
     // Set number of threads.
     ThreadPoolBuilder::new().num_threads(threads);
@@ -76,7 +76,7 @@ fn _cli_no_fasta() -> Result<(), Box<dyn Error>> {
         .get(4)
         .map(|arg| arg.parse::<usize>())
         .unwrap_or(Ok(1))?;
-    let cfg: Config = read_cfg(config)?;
+    let cfg: Config = read_cfg(config, None)?;
 
     // Set number of threads.
     ThreadPoolBuilder::new().num_threads(threads);

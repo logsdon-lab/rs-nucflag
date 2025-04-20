@@ -2,14 +2,14 @@ use std::{
     fmt::Debug,
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
-    path::Path,
+    path::Path, str::FromStr,
 };
 
 use coitrees::Interval;
 use itertools::Itertools;
 use polars::prelude::*;
 
-use crate::config::Config;
+use crate::{config::Config, preset::Preset};
 
 /// Write TSV file to file or stdout.
 pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Result<()> {
@@ -92,11 +92,23 @@ pub fn read_bed<T: Clone + Debug>(
     Ok(intervals)
 }
 
-pub fn read_cfg(path: Option<impl AsRef<Path>>) -> eyre::Result<Config> {
-    if let Some(cfg_path) = path {
-        let cfg_str = std::fs::read_to_string(cfg_path)?;
-        toml::from_str(&cfg_str).map_err(Into::into)
-    } else {
-        Ok(Config::default())
+pub fn read_cfg(path: Option<impl AsRef<Path>>, preset: Option<&str>) -> eyre::Result<Config> {
+    match (path, preset.map(Preset::from_str)) {
+        (None, None) => Ok(Config::default()),
+        (None, Some(preset)) => {
+            let preset = preset?;
+            Ok(Config::from(preset))
+        },
+        (Some(cfg_path), None) => {
+            let cfg_str = std::fs::read_to_string(cfg_path)?;
+            toml::from_str(&cfg_str).map_err(Into::into)
+        },
+        (Some(cfg_path), Some(preset)) => {
+            let preset = preset?;
+            let cfg_str = std::fs::read_to_string(cfg_path)?;
+            let cfg: Config = toml::from_str(&cfg_str)?;
+            let preset_cfg = Config::from(preset);
+            Ok(cfg.merge(preset_cfg))
+        },
     }
 }
