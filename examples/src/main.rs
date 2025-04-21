@@ -2,10 +2,10 @@ use std::error::Error;
 
 use coitrees::Interval;
 use nucflag::{
-    nucflag,
     classify::NucFlagResult,
     config::Config,
     io::{read_bed, read_cfg, write_tsv},
+    nucflag,
 };
 use rayon::{prelude::*, ThreadPoolBuilder};
 
@@ -51,7 +51,7 @@ fn cli_fasta() -> Result<(), Box<dyn Error>> {
         .into_par_iter()
         .map(|itv| {
             // Open the BAM file in read-only per thread.
-            nucflag(bam, fasta, &itv, cfg.clone()).unwrap()
+            nucflag(bam, fasta, &itv, None, cfg.clone()).unwrap()
         })
         .collect();
 
@@ -95,7 +95,7 @@ fn _cli_no_fasta() -> Result<(), Box<dyn Error>> {
         .into_par_iter()
         .map(|itv| {
             // Open the BAM file in read-only per thread.
-            nucflag(bam, None::<&str>, &itv, cfg.clone()).unwrap()
+            nucflag(bam, None::<&str>, &itv, None, cfg.clone()).unwrap()
         })
         .collect();
 

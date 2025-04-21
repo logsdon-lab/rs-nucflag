@@ -1,7 +1,9 @@
+use coitrees::{GenericInterval, Interval};
 use itertools::Itertools;
 use noodles::{
-    bam, bgzf, cram,
-    core::{Region, Position},
+    bam, bgzf,
+    core::{Position, Region},
+    cram,
     fasta::{self, repository},
     sam::{
         alignment::record::{cigar::op::Kind, Cigar},
@@ -9,8 +11,6 @@ use noodles::{
     },
 };
 use std::{fs::File, path::Path};
-use coitrees::{GenericInterval, Interval};
-
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PileupInfo {

@@ -1,13 +1,14 @@
-use coitrees::Interval;
+use coitrees::{COITree, Interval, IntervalTree};
 use core::str;
 use nucflag::{
-    nucflag,
     io::{read_bed, read_cfg},
+    nucflag,
     pileup::AlignmentFile,
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 use pyo3_polars::PyDataFrame;
 use rayon::{prelude::*, ThreadPoolBuilder};
+use std::collections::HashMap;
 
 #[pyclass]
 pub struct PyNucFlagResult {
@@ -28,13 +29,51 @@ pub struct PyNucFlagResult {
     pub regions: PyDataFrame,
 }
 
+pub(crate) fn get_whole_genome_intervals(
+    aln: &str,
+    fasta: Option<&str>,
+    window: usize,
+) -> Result<Vec<Interval<String>>, PyErr> {
+    // If no intervals, apply to whole genome based on header.
+    let mut aln =
+        AlignmentFile::new(aln, fasta).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let header = aln
+        .header()
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    Ok(header
+        .reference_sequences()
+        .into_iter()
+        .flat_map(|(ctg, ref_seq)| {
+            let ctg_name: String = ctg.clone().try_into().unwrap();
+            let length: usize = ref_seq.length().get();
+            let (num, rem) = (length / window, length % window);
+            let final_start = num * window;
+            let final_itv = Interval::new(
+                final_start as i32,
+                (final_start + rem) as i32,
+                ctg_name.clone(),
+            );
+            (1..num + 1)
+                .map(move |i| {
+                    Interval::new(
+                        ((i - 1) * window) as i32,
+                        (i * window) as i32,
+                        ctg_name.clone(),
+                    )
+                })
+                .chain([final_itv])
+        })
+        .collect())
+}
+
 /// Classify a missassembly.
 #[pyfunction]
-#[pyo3(signature = (aln, fasta = None, bed = None, threads = 1, cfg = None, preset = None))]
+#[pyo3(signature = (aln, fasta = None, bed = None, ignore_bed = None, threads = 1, cfg = None, preset = None))]
 fn run_nucflag(
     aln: &str,
     fasta: Option<&str>,
     bed: Option<&str>,
+    ignore_bed: Option<&str>,
     threads: usize,
     cfg: Option<&str>,
     preset: Option<&str>,
@@ -55,53 +94,43 @@ fn run_nucflag(
 
     let ctg_itvs: Vec<Interval<String>> = if bed.is_none() {
         // If no intervals, apply to whole genome based on header.
-        let mut aln =
-            AlignmentFile::new(aln, fasta).map_err(|err| PyValueError::new_err(err.to_string()))?;
-        let header = aln
-            .header()
-            .map_err(|err| PyValueError::new_err(err.to_string()))?;
-        let window = cfg.general.bp_wg_window;
-        header
-            .reference_sequences()
-            .into_iter()
-            .flat_map(|(ctg, ref_seq)| {
-                let ctg_name: String = ctg.clone().try_into().unwrap();
-                let length: usize = ref_seq.length().get();
-                let (num, rem) = (length / window, length % window);
-                let final_start = num * window;
-                let final_itv = Interval::new(
-                    final_start as i32,
-                    (final_start + rem) as i32,
-                    ctg_name.clone(),
-                );
-                (1..num + 1)
-                    .map(move |i| {
-                        Interval::new(
-                            ((i - 1) * window) as i32,
-                            (i * window) as i32,
-                            ctg_name.clone(),
-                        )
-                    })
-                    .chain([final_itv])
-            })
-            .collect()
+        get_whole_genome_intervals(aln, fasta, cfg.general.bp_wg_window)?
     } else {
         read_bed(bed, |name, st, end, _| {
-            Interval::new(
-                st.try_into().unwrap(),
-                end.try_into().unwrap(),
-                name.to_owned(),
-            )
+            Interval::new(st as i32, end as i32, name.to_owned())
         })
         .map_err(|err| PyValueError::new_err(err.to_string()))?
+    };
+
+    let ignore_itvs: HashMap<String, COITree<String, usize>> = {
+        read_bed(ignore_bed, |name, start, stop, _| {
+            Interval::new(start as i32, stop as i32, name.to_owned())
+        })
+        .map_err(|err| PyValueError::new_err(err.to_string()))?
+        .into_iter()
+        .fold(
+            HashMap::new(),
+            |mut acc: HashMap<String, Vec<Interval<String>>>, x| {
+                if acc.contains_key(&x.metadata) {
+                    acc.get_mut(&x.metadata).unwrap().push(x);
+                } else {
+                    acc.entry(x.metadata.clone()).or_insert(vec![x]);
+                }
+                acc
+            },
+        )
+        .into_iter()
+        .map(|(rgn, itvs)| (rgn, COITree::new(&itvs)))
+        .collect()
     };
 
     // Parallelize by contig.
     Ok(ctg_itvs
         .into_par_iter()
         .flat_map(|itv| {
+            let ignore_itvs = ignore_itvs.get(&itv.metadata);
             // Open the BAM file in read-only per thread.
-            let res = nucflag(aln, fasta, &itv, cfg.clone());
+            let res = nucflag(aln, fasta, &itv, ignore_itvs, cfg.clone());
             match res {
                 Ok(res) => Some(PyNucFlagResult {
                     ctg: itv.metadata,

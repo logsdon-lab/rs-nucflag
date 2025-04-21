@@ -9,7 +9,7 @@ use crate::{
     peak::find_peaks,
     pileup::AlignmentFile,
 };
-use coitrees::Interval;
+use coitrees::{COITree, Interval};
 use polars::prelude::*;
 use rayon::prelude::*;
 
@@ -109,6 +109,7 @@ fn nucflag_grp(
 /// * `aln`: Input BAM/CRAM file path. Should be indexed.  
 /// * `fasta`: Input BAM file path. Required with CRAM. Also used for region binning.  
 /// * `itv`: Interval to check.
+/// * `ignore_itvs`: Intervals to ignore. NOTE: Interval's metadata is not checked.
 /// * `cfg`: Peak-calling configuration. See [`Preset`] for configuration based on sequencing data type.
 ///
 /// # Returns
@@ -117,6 +118,7 @@ pub fn nucflag(
     aln: impl AsRef<Path>,
     fasta: Option<impl AsRef<Path> + Clone>,
     itv: &Interval<String>,
+    ignore_itvs: Option<&COITree<String, usize>>,
     cfg: Config,
 ) -> eyre::Result<NucFlagResult> {
     let ctg = itv.metadata.clone();
@@ -168,6 +170,7 @@ pub fn nucflag(
     log::info!("Merging intervals in {ctg}:{st}-{end}.");
     let df_itvs_final = merge_misassemblies(
         df_itvs,
+        ignore_itvs,
         bp_merge,
         &cfg.minimum_size.unwrap_or_default(),
         cfg.general.merge_across_type,

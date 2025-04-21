@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::{
     config::{Config, MinimumSizeConfig},
-    intervals::merge_intervals,
+    intervals::{merge_intervals, trim_coords},
     pileup::PileupInfo,
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
@@ -69,6 +69,7 @@ pub(crate) fn merge_pileup_info(
 
 pub(crate) fn merge_misassemblies(
     df_itvs: DataFrame,
+    ignore_itvs: Option<&COITree<String, usize>>,
     bp_merge: i32,
     cfg_min_size: &MinimumSizeConfig,
     merge_across_type: bool,
@@ -151,8 +152,8 @@ pub(crate) fn merge_misassemblies(
     let mut statuses = Vec::with_capacity(itvs_all.len());
     let mut minimum_sizes = Vec::with_capacity(itvs_all.len());
     for (st, end, cov, status) in itvs_all {
-        let st = st.try_into()?;
-        let end = end.try_into()?;
+        let mut st = st.try_into()?;
+        let mut end = end.try_into()?;
         let mut largest_ovl: Option<(&str, i32)> = None;
         final_misasm_itvs.query(st, end, |ovl_itv| {
             // Fully contained.
@@ -169,18 +170,52 @@ pub(crate) fn merge_misassemblies(
             }
         });
 
+        let mut status = if let Some((new_status, _)) = largest_ovl {
+            new_status.to_owned()
+        } else {
+            status
+        };
+
+        if let Some(itree_ignore_itvs) = ignore_itvs {
+            let mut split_itv_1: Option<(i32, i32)> = None;
+            let mut split_itv_2: Option<(i32, i32)> = None;
+            let original_status = status.clone();
+            // Trim interval by ignored intervals.
+            itree_ignore_itvs.query(st, end, |itv| {
+                trim_coords(
+                    &mut st,
+                    &mut end,
+                    itv,
+                    &mut status,
+                    &mut split_itv_1,
+                    &mut split_itv_2,
+                )
+            });
+
+            // Add split intervals if any.
+            if let (Some((st_itv_1, end_itv_1)), Some((st_itv_2, end_itv_2))) =
+                (split_itv_1, split_itv_2)
+            {
+                sts.push(st_itv_1);
+                ends.push(end_itv_1);
+                covs.push(cov);
+                sts.push(st_itv_2);
+                ends.push(end_itv_2);
+                covs.push(cov);
+
+                minimum_sizes.push(thr_minimum_sizes[original_status.as_str()]);
+                minimum_sizes.push(thr_minimum_sizes[original_status.as_str()]);
+                statuses.push(original_status.clone());
+                statuses.push(original_status);
+            }
+        }
+
         sts.push(st);
         ends.push(end);
         covs.push(cov);
 
-        let Some((new_status, _)) = largest_ovl else {
-            minimum_sizes.push(thr_minimum_sizes[status.as_str()]);
-            statuses.push(status);
-            continue;
-        };
-
-        minimum_sizes.push(thr_minimum_sizes[new_status]);
-        statuses.push(new_status.to_owned());
+        minimum_sizes.push(thr_minimum_sizes[status.as_str()]);
+        statuses.push(status);
     }
     let df_itvs_all = DataFrame::new(vec![
         Column::new("st".into(), sts),
