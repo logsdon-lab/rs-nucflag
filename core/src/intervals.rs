@@ -1,4 +1,4 @@
-use coitrees::{IntWithMax, Interval, IntervalNode};
+use coitrees::Interval;
 use itertools::Itertools;
 use std::collections::VecDeque;
 
@@ -62,73 +62,43 @@ where
     merged.into_iter().map(fn_finalizer).collect_vec()
 }
 
-pub(crate) fn trim_coords<T: Clone, I: IntWithMax>(
-    st: &mut i32,
-    end: &mut i32,
-    ovl_itv: &IntervalNode<T, I>,
-    status: &mut String,
-    split_itv_1: &mut Option<(i32, i32)>,
-    split_itv_2: &mut Option<(i32, i32)>,
-) {
-    // Cases:
-    //    |---|
-    // * |---|
-    // Current interval overlaps right
-    // Trim interval end to ignore interval start.
-    //
-    //   |---|
-    // *  |---|
-    // Current interval overlaps left
-    // Trim interval start to ignore interval end.
-    //
-    //   |---|
-    // * |---|
-    // Current interval contained in ignored interval.
-    // Set status of interval to good.
-    //
-    //    |-|
-    // * |---|
-    // Ignore interval contained in current interval.
-    // Create two intervals.
-    // * Interval start to ignore interval start w/status
-    // * Ignore interval end to interval end w/status
-    if *end > ovl_itv.first && *end < ovl_itv.last {
-        // Trim to overlap.
-        *end = ovl_itv.first
-    } else if *st < ovl_itv.last && *st > ovl_itv.first {
-        *st = ovl_itv.last
-    } else if *st >= ovl_itv.first && *end <= ovl_itv.last {
-        // Remove splits since entire interval overlapped.
-        split_itv_1.take();
-        split_itv_2.take();
-
-        status.clear();
-        status.push_str("good");
-    } else if ovl_itv.first > *st && ovl_itv.last < *end {
-        // Take min or max coordinate trimming to bounds of contained, overlapping interval.
-        if let Some(old_split_itv_1) = split_itv_1 {
-            *old_split_itv_1 = (*st, std::cmp::min(ovl_itv.first, old_split_itv_1.1))
-        } else {
-            *split_itv_1 = Some((*st, ovl_itv.first))
+/// Subtract interval by a list of non-overlapping intervals.
+/// * See [`merge_intervals`].
+pub fn subtract_intervals<T: Clone>(itv: Interval<T>, other: &[Interval<T>]) -> Vec<Interval<T>> {
+    let mut split_intervals = Vec::with_capacity(other.len() + 1);
+    let mut st = itv.first;
+    let mut last = itv.last;
+    for ovl_itv in other.iter().sorted_by(|a, b| a.first.cmp(&b.first)) {
+        if last >= ovl_itv.first && last <= ovl_itv.last {
+            //    |---|
+            // * |---|
+            last = ovl_itv.first;
+        } else if st <= ovl_itv.last && st >= ovl_itv.first {
+            //   |---|
+            // *  |---|
+            st = ovl_itv.last;
+        } else if st >= ovl_itv.first && last <= ovl_itv.last {
+            //   |---|
+            // * |---|
+            break;
+        } else if ovl_itv.first > st && ovl_itv.last < last {
+            //    |-|
+            // * |---|
+            split_intervals.push(Interval::new(st, ovl_itv.first, itv.metadata.clone()));
+            st = ovl_itv.last;
         }
-        if let Some(old_split_itv_2) = split_itv_2 {
-            *old_split_itv_2 = (std::cmp::max(ovl_itv.last, old_split_itv_2.0), *end)
-        } else {
-            *split_itv_2 = Some((ovl_itv.last, *end))
-        }
-
-        // Ignore center.
-        *st = ovl_itv.first;
-        *end = ovl_itv.last;
-        status.clear();
-        status.push_str("good");
     }
+    // Add remainder.
+    if st != last {
+        split_intervals.push(Interval::new(st, last, itv.metadata.clone()));
+    }
+    split_intervals
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_intervals, trim_coords};
-    use coitrees::{Interval, IntervalNode};
+    use super::{merge_intervals, subtract_intervals};
+    use coitrees::Interval;
     use std::fmt::Debug;
 
     const ST: i32 = 4;
@@ -222,157 +192,79 @@ mod tests {
     }
 
     #[test]
-    fn test_trim_ovl_itv_none() {
+    fn test_subtract_no_ovl() {
         // 12345678
         // |-|
         //    |---|
-        let (mut st, mut end) = (ST, END);
-        let mut status = String::from("bad");
-        let ovl_itv: IntervalNode<String, usize> = IntervalNode::new(1, 3, String::from("left"));
-        let (mut split_itv_1, mut split_itv_2) = (None, None);
-
-        trim_coords(
-            &mut st,
-            &mut end,
-            &ovl_itv,
-            &mut status,
-            &mut split_itv_1,
-            &mut split_itv_2,
-        );
-        assert!(
-            st == 4
-                && end == 8
-                && &status == "bad"
-                && split_itv_1.is_none()
-                && split_itv_2.is_none()
-        );
+        let itv = Interval::new(ST, END, "");
+        let itvs = [Interval::new(1, 3, "")];
+        let res = subtract_intervals(itv, &itvs);
+        assert_itvs_equal(&[itv], &res);
     }
 
     #[test]
-    fn test_trim_ovl_itv_left() {
+    fn test_subtract_left_ovl() {
         // 12345678
         // |---|
         //    |---|
-        let (mut st, mut end) = (ST, END);
-        let mut status = String::from("bad");
-        let ovl_itv: IntervalNode<String, usize> = IntervalNode::new(1, 5, String::from("left"));
-        let (mut split_itv_1, mut split_itv_2) = (None, None);
-
-        trim_coords(
-            &mut st,
-            &mut end,
-            &ovl_itv,
-            &mut status,
-            &mut split_itv_1,
-            &mut split_itv_2,
-        );
-        assert!(
-            st == 5
-                && end == 8
-                && &status == "bad"
-                && split_itv_1.is_none()
-                && split_itv_2.is_none()
-        );
+        let itv = Interval::new(ST, END, "");
+        let itvs = [Interval::new(1, 5, "")];
+        let res = subtract_intervals(itv, &itvs);
+        assert_itvs_equal(&[Interval::new(5, 8, "")], &res);
     }
 
     #[test]
-    fn test_trim_ovl_itv_right() {
+    fn test_subtract_right_ovl() {
         // 123456789X
         //      |---|
         //    |---|
-        let (mut st, mut end) = (ST, END);
-        let mut status = String::from("bad");
-        let ovl_itv: IntervalNode<String, usize> = IntervalNode::new(6, 10, String::from("right"));
-        let (mut split_itv_1, mut split_itv_2) = (None, None);
-
-        trim_coords(
-            &mut st,
-            &mut end,
-            &ovl_itv,
-            &mut status,
-            &mut split_itv_1,
-            &mut split_itv_2,
-        );
-        assert!(
-            st == 4
-                && end == 6
-                && &status == "bad"
-                && split_itv_1.is_none()
-                && split_itv_2.is_none()
-        );
+        let itv = Interval::new(ST, END, "");
+        let itvs = [Interval::new(6, 10, "")];
+        let res = subtract_intervals(itv, &itvs);
+        assert_itvs_equal(&[Interval::new(4, 6, "")], &res);
     }
 
     #[test]
-    fn test_trim_ovl_itv_center() {
+    fn test_subtract_center_ovl() {
         // 123456789X
         //     |-|
         //    |---|
-        let (mut st, mut end) = (ST, END);
-        let mut status = String::from("bad");
-        let ovl_itv: IntervalNode<String, usize> = IntervalNode::new(5, 7, String::from("center"));
-        let (mut split_itv_1, mut split_itv_2) = (None, None);
-
-        trim_coords(
-            &mut st,
-            &mut end,
-            &ovl_itv,
-            &mut status,
-            &mut split_itv_1,
-            &mut split_itv_2,
-        );
-        assert!(
-            st == 5
-                && end == 7
-                && &status == "good"
-                && split_itv_1 == Some((4, 5))
-                && split_itv_2 == Some((7, 8))
-        );
-        // dbg!(st, end, status, split_itv_1, split_itv_2);
+        let itv = Interval::new(ST, END, "");
+        let itvs = [Interval::new(5, 7, "")];
+        let res = subtract_intervals(itv, &itvs);
+        assert_itvs_equal(&[Interval::new(4, 5, ""), Interval::new(7, 8, "")], &res);
     }
 
     #[test]
-    fn test_trim_ovl_itv_contains() {
+    fn test_subtract_contained_ovl() {
         // 123456789X
         //    |---|
         //    |---|
-        let (mut st, mut end) = (ST, END);
-        let mut status = String::from("bad");
-        let ovl_itv: IntervalNode<String, usize> =
-            IntervalNode::new(ST, END, String::from("contains"));
-        let (mut split_itv_1, mut split_itv_2) = (None, None);
+        let itv = Interval::new(ST, END, "");
+        let itvs = [Interval::new(ST, END, "")];
+        let res = subtract_intervals(itv, &itvs);
+        assert!(res.is_empty());
+    }
 
-        trim_coords(
-            &mut st,
-            &mut end,
-            &ovl_itv,
-            &mut status,
-            &mut split_itv_1,
-            &mut split_itv_2,
-        );
-        assert!(
-            st == ST
-                && end == END
-                && &status == "good"
-                && split_itv_1.is_none()
-                && split_itv_2.is_none()
-        );
-
-        // Also check that removes any pre-existing split intervals.
-        let (mut split_itv_1, mut split_itv_2) = (Some((0, 1)), Some((1, 2)));
-        trim_coords(
-            &mut st,
-            &mut end,
-            &ovl_itv,
-            &mut status,
-            &mut split_itv_1,
-            &mut split_itv_2,
-        );
-        assert!(
-            st == ST
-                && end == END
-                && &status == "good"
-                && split_itv_1.is_none()
-                && split_itv_2.is_none()
+    #[test]
+    fn test_subtract_multiple_ovl() {
+        // 123456789X
+        //  |-||-| ||
+        // |--------|
+        let itv = Interval::new(1, 10, "");
+        let itvs = [
+            Interval::new(2, 4, ""),
+            Interval::new(5, 7, ""),
+            Interval::new(9, 10, ""),
+        ];
+        let res = subtract_intervals(itv, &itvs);
+        assert_itvs_equal(
+            &[
+                Interval::new(1, 2, ""),
+                Interval::new(4, 5, ""),
+                Interval::new(7, 9, ""),
+            ],
+            &res,
         );
     }
 }

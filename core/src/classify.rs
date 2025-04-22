@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::{
     config::{Config, MinimumSizeConfig},
-    intervals::{merge_intervals, trim_coords},
+    intervals::{merge_intervals, subtract_intervals},
     pileup::PileupInfo,
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
@@ -65,6 +65,35 @@ pub(crate) fn merge_pileup_info(
         };
     }
     Ok(lf.collect()?)
+}
+
+fn split_at_ignored_intervals<'a>(
+    st: i32,
+    end: i32,
+    status: &'a str,
+    itree_ignore_itvs: &COITree<String, usize>,
+) -> Option<Vec<Interval<&'a str>>> {
+    // Trim interval by ignored intervals.
+    let mut all_ovls = vec![];
+    itree_ignore_itvs.query(st, end, |itv| {
+        all_ovls.push(Interval::new(itv.first, itv.last, ""));
+    });
+
+    if all_ovls.is_empty() {
+        return None;
+    }
+
+    let curr_itv = Interval::new(st, end, status);
+    let new_itvs = subtract_intervals(curr_itv, &all_ovls);
+
+    // If not equal to initial interval, nothing overlaps. Allow through.
+    if new_itvs
+        .first()
+        .is_some_and(|i| i.first == curr_itv.first && i.last == curr_itv.last)
+    {
+        return None;
+    }
+    return Some(new_itvs);
 }
 
 pub(crate) fn merge_misassemblies(
@@ -152,8 +181,8 @@ pub(crate) fn merge_misassemblies(
     let mut statuses = Vec::with_capacity(itvs_all.len());
     let mut minimum_sizes = Vec::with_capacity(itvs_all.len());
     for (st, end, cov, status) in itvs_all {
-        let mut st = st.try_into()?;
-        let mut end = end.try_into()?;
+        let st = st.try_into()?;
+        let end = end.try_into()?;
         let mut largest_ovl: Option<(&str, i32)> = None;
         final_misasm_itvs.query(st, end, |ovl_itv| {
             // Fully contained.
@@ -170,50 +199,34 @@ pub(crate) fn merge_misassemblies(
             }
         });
 
-        let mut status = if let Some((new_status, _)) = largest_ovl {
+        let status = if let Some((new_status, _)) = largest_ovl {
             new_status.to_owned()
         } else {
             status
         };
 
-        if let Some(itree_ignore_itvs) = ignore_itvs {
-            let mut split_itv_1: Option<(i32, i32)> = None;
-            let mut split_itv_2: Option<(i32, i32)> = None;
-            let original_status = status.clone();
-            // Trim interval by ignored intervals.
-            itree_ignore_itvs.query(st, end, |itv| {
-                trim_coords(
-                    &mut st,
-                    &mut end,
-                    itv,
-                    &mut status,
-                    &mut split_itv_1,
-                    &mut split_itv_2,
-                )
-            });
-
-            // Add split intervals if any.
-            if let (Some((st_itv_1, end_itv_1)), Some((st_itv_2, end_itv_2))) =
-                (split_itv_1, split_itv_2)
-            {
-                sts.push(st_itv_1);
-                ends.push(end_itv_1);
+        // TODO: This might not be the best approach, but it's the easiest :)
+        // Ignoring during the pileup is better as it avoids even considering the region in calculations.
+        // However, it complicates smoothing among other things.
+        // 
+        // Split at ignored intervals if any overlap.
+        if let Some(split_intervals) =
+            ignore_itvs.and_then(|itree| split_at_ignored_intervals(st, end, &status, itree))
+        {
+            for itv in split_intervals {
+                sts.push(itv.first);
+                ends.push(itv.last);
                 covs.push(cov);
-                sts.push(st_itv_2);
-                ends.push(end_itv_2);
-                covs.push(cov);
-
-                minimum_sizes.push(thr_minimum_sizes[original_status.as_str()]);
-                minimum_sizes.push(thr_minimum_sizes[original_status.as_str()]);
-                statuses.push(original_status.clone());
-                statuses.push(original_status);
+                minimum_sizes.push(thr_minimum_sizes[status.as_str()]);
+                statuses.push(status.clone());
             }
+            continue;
         }
 
+        // Otherwise, add misassembly.
         sts.push(st);
         ends.push(end);
         covs.push(cov);
-
         minimum_sizes.push(thr_minimum_sizes[status.as_str()]);
         statuses.push(status);
     }
