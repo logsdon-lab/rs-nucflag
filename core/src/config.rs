@@ -133,7 +133,7 @@ impl Default for CoverageConfig {
         Self {
             n_zscores_high: 5.0,
             n_zscores_low: 3.0,
-            rolling_mean_window: Some(21),
+            rolling_mean_window: Some(5),
             baseline: None,
         }
     }
@@ -155,7 +155,7 @@ impl Default for MismatchConfig {
         Self {
             n_zscores_high: 3.4,
             ratio_het: 0.5,
-            rolling_mean_window: Some(21),
+            rolling_mean_window: Some(5),
         }
     }
 }
@@ -176,7 +176,7 @@ impl Default for IndelConfig {
         Self {
             n_zscores_high: 4.0,
             ratio_indel: 0.5,
-            rolling_mean_window: Some(21),
+            rolling_mean_window: Some(5),
         }
     }
 }
