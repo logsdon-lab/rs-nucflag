@@ -91,9 +91,10 @@ fn split_at_ignored_intervals<'a>(
         .first()
         .is_some_and(|i| i.first == curr_itv.first && i.last == curr_itv.last)
     {
-        return None;
+        None
+    } else {
+        Some(new_itvs)
     }
-    return Some(new_itvs);
 }
 
 pub(crate) fn merge_misassemblies(
@@ -208,7 +209,7 @@ pub(crate) fn merge_misassemblies(
         // TODO: This might not be the best approach, but it's the easiest :)
         // Ignoring during the pileup is better as it avoids even considering the region in calculations.
         // However, it complicates smoothing among other things.
-        // 
+        //
         // Split at ignored intervals if any overlap.
         if let Some(split_intervals) =
             ignore_itvs.and_then(|itree| split_at_ignored_intervals(st, end, &status, itree))
