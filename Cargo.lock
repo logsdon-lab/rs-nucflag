@@ -1354,6 +1354,7 @@ dependencies = [
  "rayon",
  "rs-moddotplot",
  "serde",
+ "suffix",
  "toml",
 ]
 
@@ -2511,6 +2512,12 @@ dependencies = [
  "rustversion",
  "syn",
 ]
+
+[[package]]
+name = "suffix"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "888734b9b84b66490ad9c6690ed200499b92bb8f4faec5a7bf61633661054199"
 
 [[package]]
 name = "syn"

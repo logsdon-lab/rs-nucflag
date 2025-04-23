@@ -1,13 +1,15 @@
 use core::str;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use crate::{
-    config::{Config, MinimumSizeConfig},
+    config::Config,
     intervals::{merge_intervals, subtract_intervals},
     pileup::PileupInfo,
+    repeats::detect_largest_repeat,
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
 use itertools::{multizip, Itertools};
+use noodles::{fasta, core::{Position, Region}};
 use polars::prelude::*;
 
 pub(crate) fn merge_pileup_info(
@@ -99,11 +101,15 @@ fn split_at_ignored_intervals<'a>(
 
 pub(crate) fn merge_misassemblies(
     df_itvs: DataFrame,
+    ctg: &str,
+    fasta: Option<impl AsRef<Path> + Debug>,
     ignore_itvs: Option<&COITree<String, usize>>,
-    bp_merge: i32,
-    cfg_min_size: &MinimumSizeConfig,
-    merge_across_type: bool,
+    cfg: Config,
 ) -> eyre::Result<LazyFrame> {
+    let bp_merge = cfg.general.bp_merge.try_into()?;
+    let merge_across_type = cfg.general.merge_across_type;
+    let cfg_min_size = cfg.minimum_size.unwrap_or_default();
+
     let itvs_all: Vec<(u64, u64, u8, String)> = multizip((
         df_itvs.column("st")?.u64()?.iter().flatten(),
         df_itvs.column("end")?.u64()?.iter().flatten(),
@@ -175,12 +181,24 @@ pub(crate) fn merge_misassemblies(
         ("softclip", cfg_min_size.softclip.try_into()?),
     ]);
 
+    let mut fasta_reader = if let Some(fasta) = fasta {
+        log::info!("Reading indexed {fasta:?} for {ctg} to detect further classify misassemblies by repeat.");
+        let mut fai = fasta.as_ref().as_os_str().to_owned();
+        fai.push(".fai");
+        let fai = fasta::fai::read(fai)?;
+        let fa = BufReader::new(File::open(fasta)?);
+        Some(fasta::IndexedReader::new(fa, fai))
+    } else {
+        None
+    };
+
     // Convert good columns to misassembly types.
     let mut sts = Vec::with_capacity(itvs_all.len());
     let mut ends = Vec::with_capacity(itvs_all.len());
     let mut covs = Vec::with_capacity(itvs_all.len());
     let mut statuses = Vec::with_capacity(itvs_all.len());
     let mut minimum_sizes = Vec::with_capacity(itvs_all.len());
+    // TODO: Parallelize.
     for (st, end, cov, status) in itvs_all {
         let st = st.try_into()?;
         let end = end.try_into()?;
@@ -206,6 +224,25 @@ pub(crate) fn merge_misassemblies(
             status
         };
 
+        // Detect scaffold/homopolymer/simple repeat and replace type.
+        let status = if let Some(reader) = fasta_reader
+            .as_mut()
+            .filter(|_| status == "indel" || status == "misjoin")
+        {
+            let region = Region::new(
+                ctg,
+                Position::new(st.clamp(1, i32::MAX).try_into()?).unwrap()
+                    ..=Position::new(end.try_into()?).unwrap(),
+            );
+            let record = reader.query(&region)?;
+            let seq = str::from_utf8(record.sequence().as_ref())?;
+            detect_largest_repeat(seq)
+                .and_then(|rpt| (rpt.prop > 0.5).then(|| rpt.repeat.to_string()))
+                .unwrap_or(status)
+        } else {
+            status
+        };
+
         // TODO: This might not be the best approach, but it's the easiest :)
         // Ignoring during the pileup is better as it avoids even considering the region in calculations.
         // However, it complicates smoothing among other things.
@@ -218,7 +255,12 @@ pub(crate) fn merge_misassemblies(
                 sts.push(itv.first);
                 ends.push(itv.last);
                 covs.push(cov);
-                minimum_sizes.push(thr_minimum_sizes[status.as_str()]);
+                minimum_sizes.push(
+                    thr_minimum_sizes
+                        .get(status.as_str())
+                        .cloned()
+                        .unwrap_or(u64::MIN),
+                );
                 statuses.push(status.clone());
             }
             continue;
@@ -228,7 +270,12 @@ pub(crate) fn merge_misassemblies(
         sts.push(st);
         ends.push(end);
         covs.push(cov);
-        minimum_sizes.push(thr_minimum_sizes[status.as_str()]);
+        minimum_sizes.push(
+            thr_minimum_sizes
+                .get(status.as_str())
+                .cloned()
+                .unwrap_or(u64::MIN),
+        );
         statuses.push(status);
     }
     let df_itvs_all = DataFrame::new(vec![

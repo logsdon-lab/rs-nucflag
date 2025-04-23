@@ -1,5 +1,5 @@
 use core::str;
-use std::{path::Path, str::FromStr};
+use std::{fmt::Debug, path::Path, str::FromStr};
 
 use crate::{
     binning::group_pileup_by_ani,
@@ -116,7 +116,7 @@ fn nucflag_grp(
 /// * [`NucFlagResult`]
 pub fn nucflag(
     aln: impl AsRef<Path>,
-    fasta: Option<impl AsRef<Path> + Clone>,
+    fasta: Option<impl AsRef<Path> + Clone + Debug>,
     itv: &Interval<String>,
     ignore_itvs: Option<&COITree<String, usize>>,
     cfg: Config,
@@ -130,15 +130,16 @@ pub fn nucflag(
     let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end, &cfg)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
-    let df_pileup_groups = if let (Some(fasta), Some(cfg_grp_by_ani)) = (fasta, &cfg.group_by_ani) {
-        group_pileup_by_ani(df_raw_pileup, fasta, itv, cfg_grp_by_ani)?
-            .partition_by(["bin"], true)?
-    } else {
-        vec![df_raw_pileup
-            .lazy()
-            .with_column(lit(0).alias("bin"))
-            .collect()?]
-    };
+    let df_pileup_groups =
+        if let (Some(fasta), Some(cfg_grp_by_ani)) = (fasta.clone(), &cfg.group_by_ani) {
+            group_pileup_by_ani(df_raw_pileup, fasta, itv, cfg_grp_by_ani)?
+                .partition_by(["bin"], true)?
+        } else {
+            vec![df_raw_pileup
+                .lazy()
+                .with_column(lit(0).alias("bin"))
+                .collect()?]
+        };
 
     let (dfs_itvs, dfs_pileup): (Vec<LazyFrame>, Vec<Option<LazyFrame>>) = df_pileup_groups
         .into_par_iter()
@@ -164,57 +165,49 @@ pub fn nucflag(
         None
     };
 
-    let bp_merge: i32 = cfg.general.bp_merge.try_into()?;
-
     // Then merge and filter.
     log::info!("Merging intervals in {ctg}:{st}-{end}.");
-    let df_itvs_final = merge_misassemblies(
-        df_itvs,
-        ignore_itvs,
-        bp_merge,
-        &cfg.minimum_size.unwrap_or_default(),
-        cfg.general.merge_across_type,
-    )?
-    .with_columns([
-        lit(ctg.clone()).alias("chrom"),
-        col("st").alias("thickStart"),
-        col("end").alias("thickEnd"),
-        lit("+").alias("strand"),
-        // Convert statuses into colors.
-        col("status")
-            .map(
-                |statuses| {
-                    Ok(Some(Column::new(
-                        "itemRgb".into(),
-                        statuses
-                            .str()?
-                            .iter()
-                            .flatten()
-                            .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
-                            .collect::<Vec<&str>>(),
-                    )))
-                },
-                SpecialEq::same_type(),
-            )
-            .alias("itemRgb"),
-    ])
-    .rename(
-        ["st", "end", "status", "cov"],
-        ["chromStart", "chromEnd", "name", "score"],
-        true,
-    )
-    .select([
-        col("chrom"),
-        col("chromStart"),
-        col("chromEnd"),
-        col("name"),
-        col("score"),
-        col("strand"),
-        col("thickStart"),
-        col("thickEnd"),
-        col("itemRgb"),
-    ])
-    .collect()?;
+    let df_itvs_final = merge_misassemblies(df_itvs, &ctg, fasta, ignore_itvs, cfg)?
+        .with_columns([
+            lit(ctg.clone()).alias("chrom"),
+            col("st").alias("thickStart"),
+            col("end").alias("thickEnd"),
+            lit("+").alias("strand"),
+            // Convert statuses into colors.
+            col("status")
+                .map(
+                    |statuses| {
+                        Ok(Some(Column::new(
+                            "itemRgb".into(),
+                            statuses
+                                .str()?
+                                .iter()
+                                .flatten()
+                                .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
+                                .collect::<Vec<&str>>(),
+                        )))
+                    },
+                    SpecialEq::same_type(),
+                )
+                .alias("itemRgb"),
+        ])
+        .rename(
+            ["st", "end", "status", "cov"],
+            ["chromStart", "chromEnd", "name", "score"],
+            true,
+        )
+        .select([
+            col("chrom"),
+            col("chromStart"),
+            col("chromEnd"),
+            col("name"),
+            col("score"),
+            col("strand"),
+            col("thickStart"),
+            col("thickEnd"),
+            col("itemRgb"),
+        ])
+        .collect()?;
 
     let (n_misassemblies, _) = df_itvs_final
         .select(["name"])?
