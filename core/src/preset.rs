@@ -33,16 +33,16 @@ impl From<Preset> for Config {
             Preset::PacBioHiFi => Config::default(),
             Preset::OntR9 => Config {
                 mismatch: MismatchConfig {
-                    rolling_mean_window: Some(25),
+                    rolling_mean_window: Some(31),
                     ..Default::default()
                 },
                 cov: CoverageConfig {
                     n_zscores_low: 5.0,
-                    rolling_mean_window: Some(25),
+                    rolling_mean_window: Some(31),
                     ..Default::default()
                 },
                 indel: IndelConfig {
-                    rolling_mean_window: Some(25),
+                    rolling_mean_window: Some(31),
                     ..Default::default()
                 },
                 minimum_size: Some(MinimumSizeConfig {

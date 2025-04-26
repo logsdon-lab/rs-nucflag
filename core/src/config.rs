@@ -69,11 +69,7 @@ impl Default for MinimumSizeConfig {
 pub struct GroupByANIConfig {
     /// Size of window to calculate self-identity.
     pub window_size: usize,
-    /// Size of band along alignment matrix diagonal. Larger values will get longer distance relationships.
-    pub band_size: usize,
-    /// Threshold change in percent identity to group intervals.
-    pub thr_dt_ident: f32,
-    /// Minimum group size. Smaller groups are merged into larger groups of higher identity.
+    /// Minimum group size.
     pub min_grp_size: usize,
 }
 
@@ -81,8 +77,6 @@ impl Default for GroupByANIConfig {
     fn default() -> Self {
         Self {
             window_size: 2000,
-            band_size: 31,
-            thr_dt_ident: 0.05,
             min_grp_size: 50_000,
         }
     }
@@ -133,7 +127,7 @@ impl Default for CoverageConfig {
         Self {
             n_zscores_high: 5.0,
             n_zscores_low: 3.0,
-            rolling_mean_window: Some(5),
+            rolling_mean_window: Some(11),
             baseline: None,
         }
     }
@@ -154,8 +148,8 @@ impl Default for MismatchConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.4,
-            ratio_het: 0.5,
-            rolling_mean_window: Some(5),
+            ratio_het: 0.34,
+            rolling_mean_window: Some(11),
         }
     }
 }
@@ -176,7 +170,7 @@ impl Default for IndelConfig {
         Self {
             n_zscores_high: 4.0,
             ratio_indel: 0.5,
-            rolling_mean_window: Some(5),
+            rolling_mean_window: Some(11),
         }
     }
 }

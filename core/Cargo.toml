@@ -14,7 +14,6 @@ eyre = "0.6.12"
 itertools = "0.14.0"
 log = "0.4.25"
 noodles = { version = "0.96.0", features = ["bam", "bgzf", "core", "cram", "fasta", "sam"] }
-ordered-float = "5.0.0"
 polars = { version = "0.46.0", features = ["dtype-u8", "lazy", "rank", "abs", "rle", "round_series", "rolling_window", "partition_by"] }
 rayon = "1.10.0"
 rs-moddotplot = { path = "src/rs-moddotplot" }

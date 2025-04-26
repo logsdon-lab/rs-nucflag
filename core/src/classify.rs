@@ -9,7 +9,10 @@ use crate::{
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
 use itertools::{multizip, Itertools};
-use noodles::{fasta, core::{Position, Region}};
+use noodles::{
+    core::{Position, Region},
+    fasta,
+};
 use polars::prelude::*;
 
 pub(crate) fn merge_pileup_info(
