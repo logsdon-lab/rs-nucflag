@@ -91,7 +91,7 @@ fn nucflag_grp(
     // Add supplementary and indel counts.
     let lf_pileup = lf_pileup.join(
         df_pileup
-            .select(["pos", "supp", "indel", "softclip", "bin"])?
+            .select(["pos", "indel", "softclip", "bin"])?
             .lazy(),
         [col("pos")],
         [col("pos")],

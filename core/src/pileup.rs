@@ -17,7 +17,6 @@ pub struct PileupInfo {
     pub n_cov: u64,
     pub n_mismatch: u64,
     pub n_indel: u64,
-    pub n_supp: u64,
     pub n_softclip: u64,
     pub mapq: Vec<u8>,
 }
@@ -126,10 +125,6 @@ macro_rules! pileup {
             }
 
             pileup_info.n_cov += 1;
-
-            if $read.flags().is_supplementary() {
-                pileup_info.n_supp += 1
-            }
         }
     };
 }
@@ -242,7 +237,6 @@ mod test {
                         n_cov: 41,
                         n_mismatch: 0,
                         n_indel: 40,
-                        n_supp: 0,
                         n_softclip: 0,
                         mapq: [
                             60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 18, 18, 34, 34, 60, 60, 35, 35,
@@ -257,7 +251,6 @@ mod test {
                         n_cov: 41,
                         n_mismatch: 0,
                         n_indel: 0,
-                        n_supp: 0,
                         n_softclip: 0,
                         mapq: [
                             60, 60, 60, 60, 60, 18, 34, 60, 35, 60, 60, 33, 30, 60, 33, 34, 33, 31,
@@ -270,7 +263,6 @@ mod test {
                         n_cov: 41,
                         n_mismatch: 0,
                         n_indel: 38,
-                        n_supp: 0,
                         n_softclip: 0,
                         mapq: [
                             60, 60, 60, 60, 60, 60, 60, 60, 18, 18, 34, 34, 60, 60, 35, 35, 60, 60,

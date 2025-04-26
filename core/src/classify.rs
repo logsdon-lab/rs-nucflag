@@ -21,15 +21,7 @@ pub(crate) fn merge_pileup_info(
     end: u64,
     cfg: &Config,
 ) -> eyre::Result<DataFrame> {
-    let (
-        mut cov_cnts,
-        mut mismatch_cnts,
-        mut mapq_cnts,
-        mut supp_cnts,
-        mut indel_cnts,
-        mut softclip_cnts,
-    ) = (
-        Vec::with_capacity(pileup.len()),
+    let (mut cov_cnts, mut mismatch_cnts, mut mapq_cnts, mut indel_cnts, mut softclip_cnts) = (
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
@@ -40,7 +32,6 @@ pub(crate) fn merge_pileup_info(
         cov_cnts.push(p.n_cov);
         mismatch_cnts.push(p.n_mismatch);
         mapq_cnts.push(p.median_mapq().unwrap_or(0));
-        supp_cnts.push(p.n_supp);
         indel_cnts.push(p.n_indel);
         softclip_cnts.push(p.n_softclip);
     }
@@ -50,7 +41,6 @@ pub(crate) fn merge_pileup_info(
         Column::new("cov".into(), cov_cnts),
         Column::new("mismatch".into(), mismatch_cnts),
         Column::new("mapq".into(), mapq_cnts),
-        Column::new("supp".into(), supp_cnts),
         Column::new("indel".into(), indel_cnts),
         Column::new("softclip".into(), softclip_cnts),
     ])?
@@ -228,10 +218,7 @@ pub(crate) fn merge_misassemblies(
         };
 
         // Detect scaffold/homopolymer/simple repeat and replace type.
-        let status = if let Some(reader) = fasta_reader
-            .as_mut()
-            .filter(|_| status == "indel" || status == "misjoin")
-        {
+        let status = if let Some(reader) = fasta_reader.as_mut() {
             let region = Region::new(
                 ctg,
                 Position::new(st.clamp(1, i32::MAX).try_into()?).unwrap()
@@ -400,24 +387,27 @@ pub(crate) fn classify_peaks(
             .alias("status"),
         );
 
+    /*
+    // Removed cols to reduce memory consumption.
+    col("cov_zscore"),
+    col("mismatch_zscore"),
+    col("indel_zscore"),
+    col("softclip_zscore"),
+    */
+    let cols = [
+        col("chrom"),
+        col("pos"),
+        col("cov"),
+        col("status"),
+        col("mismatch"),
+        col("mapq"),
+        col("indel"),
+        col("softclip"),
+        col("bin"),
+    ];
     let df_pileup = lf_pileup
         .with_column(lit(ctg).alias("chrom"))
-        .select([
-            col("chrom"),
-            col("pos"),
-            col("cov"),
-            col("mismatch"),
-            col("mapq"),
-            col("status"),
-            col("indel"),
-            col("supp"),
-            col("softclip"),
-            col("cov_zscore"),
-            col("mismatch_zscore"),
-            col("indel_zscore"),
-            col("softclip_zscore"),
-            col("bin"),
-        ])
+        .select(cols)
         .collect()?;
 
     // Construct intervals.
