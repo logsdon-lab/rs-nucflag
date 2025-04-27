@@ -55,7 +55,7 @@ pub struct MinimumSizeConfig {
 impl Default for MinimumSizeConfig {
     fn default() -> Self {
         Self {
-            collapse: usize::MIN,
+            collapse: 20_000,
             misjoin: usize::MIN,
             low_quality: usize::MIN,
             false_dupe: 20_000,
@@ -71,13 +71,16 @@ pub struct GroupByANIConfig {
     pub window_size: usize,
     /// Minimum group size.
     pub min_grp_size: usize,
+    /// Minimum identity of group.
+    pub min_ident: f32,
 }
 
 impl Default for GroupByANIConfig {
     fn default() -> Self {
         Self {
-            window_size: 2000,
+            window_size: 5_000,
             min_grp_size: 50_000,
+            min_ident: 95.0,
         }
     }
 }
@@ -101,7 +104,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             verbose: true,
-            bp_merge: 5000,
+            bp_merge: 5_000,
             bp_wg_window: 10_000_000,
             merge_across_type: false,
             store_pileup: true,
@@ -125,9 +128,9 @@ pub struct CoverageConfig {
 impl Default for CoverageConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 5.0,
-            n_zscores_low: 3.0,
-            rolling_mean_window: Some(11),
+            n_zscores_high: 6.0,
+            n_zscores_low: 3.5,
+            rolling_mean_window: None,
             baseline: None,
         }
     }
@@ -147,9 +150,9 @@ pub struct MismatchConfig {
 impl Default for MismatchConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 3.4,
-            ratio_het: 0.34,
-            rolling_mean_window: Some(11),
+            n_zscores_high: 3.5,
+            ratio_het: 0.2,
+            rolling_mean_window: None,
         }
     }
 }
@@ -170,7 +173,7 @@ impl Default for IndelConfig {
         Self {
             n_zscores_high: 4.0,
             ratio_indel: 0.5,
-            rolling_mean_window: Some(11),
+            rolling_mean_window: Some(5),
         }
     }
 }
@@ -187,7 +190,7 @@ pub struct SoftClipConfig {
 impl Default for SoftClipConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 3.4,
+            n_zscores_high: 3.5,
             ratio_softclip: 0.5,
         }
     }

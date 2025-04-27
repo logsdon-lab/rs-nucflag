@@ -21,6 +21,7 @@ pub fn group_pileup_by_ani(
     let (st, end): (i32, i32) = (itv.first.clamp(1, i32::MAX), itv.last);
     let window_size = cfg.window_size;
     let min_grp_size = cfg.min_grp_size;
+    let min_ident = cfg.min_ident;
 
     let mut reader_fasta = fasta::io::indexed_reader::Builder::default().build_from_path(fasta)?;
     let position = Position::new(st.try_into()?).unwrap()..=Position::new(end.try_into()?).unwrap();
@@ -43,7 +44,7 @@ pub fn group_pileup_by_ani(
         COITree::new(
             &bed_group_ident
                 .into_iter()
-                .filter(|r| r.end - r.start > min_grp_size)
+                .filter(|r| (r.end - r.start > min_grp_size) && r.avg_perc_id_by_events > min_ident)
                 .enumerate()
                 // 0 is unbinned.
                 .map(|(i, r)| Interval::new(r.start as i32 + st, r.end as i32 + st, (i + 1) as u64))
