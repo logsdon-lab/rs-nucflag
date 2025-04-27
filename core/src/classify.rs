@@ -1,13 +1,15 @@
 use core::str;
-use std::{collections::HashMap, fmt::Debug, fs::File, io::BufReader, path::Path};
+use std::{collections::HashMap, fmt::Debug, fs::File, io::BufReader, path::Path, str::FromStr};
 
 use crate::{
     config::Config,
     intervals::{merge_intervals, subtract_intervals},
+    misassembly::MisassemblyType,
     pileup::PileupInfo,
     repeats::detect_largest_repeat,
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
+use eyre::Context;
 use itertools::{multizip, Itertools};
 use noodles::{
     core::{Position, Region},
@@ -164,21 +166,14 @@ pub(crate) fn merge_misassemblies(
         merged_misasm_itvs
     });
 
-    let thr_minimum_sizes: HashMap<&str, u64> = HashMap::from_iter([
-        ("good", u64::MAX),
-        ("collapse", cfg_min_size.collapse.try_into()?),
-        ("false_dupe", cfg_min_size.false_dupe.try_into()?),
-        ("indel", cfg_min_size.indel.try_into()?),
-        ("low_quality", cfg_min_size.low_quality.try_into()?),
-        ("misjoin", cfg_min_size.misjoin.try_into()?),
-        ("softclip", cfg_min_size.softclip.try_into()?),
-    ]);
+    let thr_minimum_sizes: HashMap<&str, u64> = (&cfg_min_size).try_into()?;
 
     let mut fasta_reader = if let Some(fasta) = fasta {
         log::info!("Reading indexed {fasta:?} for {ctg} to detect further classify misassemblies by repeat.");
         let mut fai = fasta.as_ref().as_os_str().to_owned();
         fai.push(".fai");
-        let fai = fasta::fai::read(fai)?;
+        let fai =
+            fasta::fai::read(fai).with_context(|| format!("Fasta file {fasta:?} not indexed."))?;
         let fa = BufReader::new(File::open(fasta)?);
         Some(fasta::IndexedReader::new(fa, fai))
     } else {
@@ -218,19 +213,31 @@ pub(crate) fn merge_misassemblies(
         };
 
         // Detect scaffold/homopolymer/simple repeat and replace type.
-        let status = if let Some(reader) = fasta_reader
-            .as_mut()
-            .filter(|_| status == "misjoin" || status == "indel")
-        {
+        let status = if let (Some(reader), Some(cfg_rpt)) = (
+            fasta_reader.as_mut(),
+            // Must have repeat config and the current status must be in types to check.
+            MisassemblyType::from_str(&status)
+                .map(|mtype| cfg.repeat.as_ref().map(|cfg_rpt| (mtype, cfg_rpt)))?
+                .and_then(|(mtype, cfg_rpt)| {
+                    cfg_rpt.check_types.contains(&mtype).then_some(cfg_rpt)
+                }),
+        ) {
+            // Add extended region.
+            let st = st
+                .saturating_sub(cfg_rpt.bp_extend.try_into()?)
+                .clamp(1, i32::MAX)
+                .try_into()?;
+            let end = end
+                .saturating_add(cfg_rpt.bp_extend.try_into()?)
+                .try_into()?;
             let region = Region::new(
                 ctg,
-                Position::new(st.clamp(1, i32::MAX).try_into()?).unwrap()
-                    ..=Position::new(end.try_into()?).unwrap(),
+                Position::new(st).unwrap()..=Position::new(end).unwrap(),
             );
             let record = reader.query(&region)?;
             let seq = str::from_utf8(record.sequence().as_ref())?;
             detect_largest_repeat(seq)
-                .and_then(|rpt| (rpt.prop > 0.5).then(|| rpt.repeat.to_string()))
+                .and_then(|rpt| (rpt.prop > cfg_rpt.ratio_repeat).then(|| rpt.repeat.to_string()))
                 .unwrap_or(status)
         } else {
             status

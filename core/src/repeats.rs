@@ -12,7 +12,7 @@ pub enum Repeat {
     /// Homopolymers with continuous run of some characters. ex. `AAAAA`
     Homopolymer,
     /// Simple repeat of some size. ex. `AGCAGCAGC`
-    Simple,
+    SimpleRepeat,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,7 +89,7 @@ pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary> {
     let repeat_type = match repeat.chars().sorted().dedup().count() {
         0 => unreachable!(),
         1 => Repeat::Homopolymer,
-        2.. => Repeat::Simple,
+        2.. => Repeat::SimpleRepeat,
     };
 
     Some(RepeatSummary {
@@ -111,7 +111,7 @@ impl FromStr for Repeat {
         Ok(match s {
             "scaffold" => Repeat::Scaffold,
             "homopolymer" => Repeat::Homopolymer,
-            "simple" => Repeat::Simple,
+            "simple_repeat" => Repeat::SimpleRepeat,
             _ => bail!("Invalid repeat type, {s}."),
         })
     }
@@ -122,7 +122,7 @@ impl Display for Repeat {
         match self {
             Repeat::Scaffold => write!(f, "scaffold"),
             Repeat::Homopolymer => write!(f, "homopolymer"),
-            Repeat::Simple => write!(f, "simple"),
+            Repeat::SimpleRepeat => write!(f, "simple_repeat"),
         }
     }
 }
@@ -137,7 +137,7 @@ mod test {
         let res = detect_largest_repeat(seq);
         assert_eq!(
             Some(RepeatSummary {
-                repeat: Repeat::Simple,
+                repeat: Repeat::SimpleRepeat,
                 sequence: "AGCAGC",
                 prop: 0.64285713,
                 original_sequence: "TTAGCAGCAGCCCG",
@@ -150,9 +150,9 @@ mod test {
     fn test_detect_simple_double() {
         let seq = "ATATATATATC";
         let res = detect_largest_repeat(seq);
-        dbg!(
+        assert_eq!(
             Some(RepeatSummary {
-                repeat: Repeat::Simple,
+                repeat: Repeat::SimpleRepeat,
                 sequence: "ATATATAT",
                 prop: 0.90909094,
                 original_sequence: "ATATATATATC",

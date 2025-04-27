@@ -1,6 +1,10 @@
+use std::collections::{HashMap, HashSet};
+
 use serde::Deserialize;
 
-#[derive(Deserialize, Debug, Default, Clone)]
+use crate::misassembly::MisassemblyType;
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     /// General config.
     pub general: GeneralConfig,
@@ -12,10 +16,27 @@ pub struct Config {
     pub indel: IndelConfig,
     /// Softclip base config.
     pub softclip: SoftClipConfig,
+    /// Repeat detection config.
+    pub repeat: Option<RepeatConfig>,
     /// Bin pileup based on self-identity. Requires fasta in input.
     pub group_by_ani: Option<GroupByANIConfig>,
     /// Minimum size of misassemblies.
     pub minimum_size: Option<MinimumSizeConfig>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            general: GeneralConfig::default(),
+            cov: CoverageConfig::default(),
+            mismatch: MismatchConfig::default(),
+            indel: IndelConfig::default(),
+            softclip: SoftClipConfig::default(),
+            group_by_ani: Some(GroupByANIConfig::default()),
+            minimum_size: Some(MinimumSizeConfig::default()),
+            repeat: Some(RepeatConfig::default()),
+        }
+    }
 }
 
 impl Config {
@@ -38,6 +59,7 @@ impl Config {
             softclip: self.softclip,
             group_by_ani: self.group_by_ani,
             minimum_size: other.minimum_size,
+            repeat: self.repeat,
         }
     }
 }
@@ -50,17 +72,42 @@ pub struct MinimumSizeConfig {
     pub false_dupe: usize,
     pub softclip: usize,
     pub indel: usize,
+    pub homopolymer: usize,
+    pub simple_repeat: usize,
+    pub scaffold: usize,
+}
+
+impl TryFrom<&MinimumSizeConfig> for HashMap<&str, u64> {
+    type Error = eyre::Error;
+
+    fn try_from(cfg: &MinimumSizeConfig) -> Result<Self, Self::Error> {
+        Ok(HashMap::from_iter([
+            ("good", u64::MAX),
+            ("collapse", cfg.collapse.try_into()?),
+            ("false_dupe", cfg.false_dupe.try_into()?),
+            ("indel", cfg.indel.try_into()?),
+            ("low_quality", cfg.low_quality.try_into()?),
+            ("misjoin", cfg.misjoin.try_into()?),
+            ("softclip", cfg.softclip.try_into()?),
+            ("homopolymer", cfg.homopolymer.try_into()?),
+            ("simple_repeat", cfg.simple_repeat.try_into()?),
+            ("scaffold", cfg.scaffold.try_into()?),
+        ]))
+    }
 }
 
 impl Default for MinimumSizeConfig {
     fn default() -> Self {
         Self {
             collapse: 20_000,
-            misjoin: usize::MIN,
-            low_quality: usize::MIN,
+            misjoin: 1,
+            low_quality: 1,
             false_dupe: 20_000,
-            softclip: usize::MIN,
-            indel: usize::MIN,
+            softclip: 1,
+            indel: 1,
+            homopolymer: 3,
+            simple_repeat: 4,
+            scaffold: 1,
         }
     }
 }
@@ -128,7 +175,7 @@ pub struct CoverageConfig {
 impl Default for CoverageConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 6.0,
+            n_zscores_high: 5.5,
             n_zscores_low: 3.5,
             rolling_mean_window: None,
             baseline: None,
@@ -192,6 +239,33 @@ impl Default for SoftClipConfig {
         Self {
             n_zscores_high: 3.5,
             ratio_softclip: 0.5,
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+/// Configuration for repeat detection from misassemblies. Requires providing fasta.
+pub struct RepeatConfig {
+    /// Which misassembles to check for repeats.
+    /// * Usually types associated with drops in coverage.
+    /// * Defaults to [`MisassemblyType::Misjoin`] and [`MisassemblyType::Indel`].
+    pub check_types: HashSet<MisassemblyType>,
+    /// Ratio required of checked region to call as repeat.
+    /// * Defaults to a majority.
+    pub ratio_repeat: f32,
+    /// Extend region checked by n bases on both ends.
+    /// By default is the misassembled regions length.
+    /// * Sometimes this is not enough is only 1 position long.
+    /// * Defaults to 2 bp.  
+    pub bp_extend: usize,
+}
+
+impl Default for RepeatConfig {
+    fn default() -> Self {
+        Self {
+            check_types: HashSet::from_iter([MisassemblyType::Misjoin, MisassemblyType::Indel]),
+            ratio_repeat: 0.5,
+            bp_extend: 2,
         }
     }
 }

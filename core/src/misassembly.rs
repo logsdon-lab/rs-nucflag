@@ -1,6 +1,8 @@
 use std::{convert::Infallible, str::FromStr};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use serde::Deserialize;
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Hash)]
 pub enum MisassemblyType {
     LowQuality,
     Indel,
