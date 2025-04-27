@@ -218,7 +218,10 @@ pub(crate) fn merge_misassemblies(
         };
 
         // Detect scaffold/homopolymer/simple repeat and replace type.
-        let status = if let Some(reader) = fasta_reader.as_mut() {
+        let status = if let Some(reader) = fasta_reader
+            .as_mut()
+            .filter(|_| status == "misjoin" || status == "indel")
+        {
             let region = Region::new(
                 ctg,
                 Position::new(st.clamp(1, i32::MAX).try_into()?).unwrap()
