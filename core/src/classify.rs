@@ -332,6 +332,10 @@ pub(crate) fn classify_peaks(
     cfg: &Config,
     median_cov: u64,
 ) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
+    let thr_false_dupe = (cfg.cov.ratio_false_dupe * median_cov as f32).floor();
+    let thr_collapse = (cfg.cov.ratio_collapse * median_cov as f32).floor();
+    let thr_misjoin = (cfg.cov.ratio_misjoin * median_cov as f32).floor();
+
     let lf_pileup = lf_pileup
         .with_column(
             // indel
@@ -357,7 +361,7 @@ pub(crate) fn classify_peaks(
             when(
                 col("cov_peak")
                     .eq(lit("high"))
-                    .and(col("cov").gt_eq(lit(median_cov / 2)))
+                    .and(col("cov").gt_eq(lit(thr_collapse)))
                     .and(col("indel_peak").eq(lit("high"))),
             )
             .then(lit("collapse"))
@@ -365,11 +369,9 @@ pub(crate) fn classify_peaks(
             // Regions with zero coverage or a dip in coverage with a indels or softclipping accounting for majority of the dip.
             // Might be scaffold or misjoined contig. Without reference, not known.
             .when(
-                col("cov").eq(lit(0)).or(col("cov_peak").eq(lit("low")).and(
-                    col("status")
-                        .eq(lit("indel"))
-                        .or(col("status").eq(lit("softclip"))),
-                )),
+                col("cov").eq(lit(0)).or(col("cov_peak")
+                    .eq(lit("low"))
+                    .and(col("cov").lt_eq(thr_misjoin))),
             )
             .then(lit("misjoin"))
             // false_dupe
@@ -377,7 +379,7 @@ pub(crate) fn classify_peaks(
             // Either a duplicated contig, duplicated region, or an SV (large insertion of repetive region).
             .when(
                 col("cov")
-                    .lt_eq(lit(median_cov / 2))
+                    .lt_eq(lit(thr_false_dupe))
                     .and(col("mapq").eq(lit(0))),
             )
             .then(lit("false_dupe"))

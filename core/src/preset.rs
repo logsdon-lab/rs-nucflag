@@ -37,12 +37,11 @@ impl From<Preset> for Config {
                     ..Default::default()
                 },
                 cov: CoverageConfig {
-                    n_zscores_low: 5.0,
-                    rolling_mean_window: Some(31),
+                    rolling_mean_window: Some(11),
                     ..Default::default()
                 },
                 indel: IndelConfig {
-                    rolling_mean_window: Some(31),
+                    rolling_mean_window: Some(21),
                     ..Default::default()
                 },
                 minimum_size: Some(MinimumSizeConfig {

@@ -99,7 +99,7 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<&str, u64> {
 impl Default for MinimumSizeConfig {
     fn default() -> Self {
         Self {
-            collapse: 20_000,
+            collapse: 1,
             misjoin: 1,
             low_quality: 1,
             false_dupe: 20_000,
@@ -127,7 +127,7 @@ impl Default for GroupByANIConfig {
         Self {
             window_size: 5_000,
             min_grp_size: 50_000,
-            min_ident: 95.0,
+            min_ident: 80.0,
         }
     }
 }
@@ -166,6 +166,12 @@ pub struct CoverageConfig {
     pub n_zscores_high: f32,
     /// Number of z-scores below the median to be considered a misassembly.
     pub n_zscores_low: f32,
+    /// Minimum coverage ratio required for a misjoin.
+    pub ratio_misjoin: f32,
+    /// Minimum coverage ratio required for a collapse.
+    pub ratio_collapse: f32,
+    /// Minimum coverage ratio required for a false dupe.
+    pub ratio_false_dupe: f32,
     /// Baseline coverage used for false-duplication classification. Defaults to average coverage of region.
     pub baseline: Option<u64>,
     /// Window to apply rolling mean filter. Reduces noise.
@@ -175,8 +181,11 @@ pub struct CoverageConfig {
 impl Default for CoverageConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 5.5,
+            n_zscores_high: 3.5,
             n_zscores_low: 3.5,
+            ratio_misjoin: 0.2,
+            ratio_collapse: 1.5,
+            ratio_false_dupe: 0.5,
             rolling_mean_window: None,
             baseline: None,
         }
@@ -218,9 +227,9 @@ pub struct IndelConfig {
 impl Default for IndelConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 4.0,
+            n_zscores_high: 8.0,
             ratio_indel: 0.5,
-            rolling_mean_window: Some(5),
+            rolling_mean_window: Some(11),
         }
     }
 }
