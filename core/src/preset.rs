@@ -11,7 +11,7 @@ pub enum Preset {
     /// PacBio Hifi. Default option. Accuracy ~99.9%.
     #[default]
     PacBioHiFi,
-    /// ONT R9. Removes mismatch as signal due to error rate. Accuracy of ~95%.
+    /// ONT R9. Smooths mismatch as signal due to error rate. Accuracy of ~95%.
     OntR9,
 }
 
@@ -33,7 +33,7 @@ impl From<Preset> for Config {
             Preset::PacBioHiFi => Config::default(),
             Preset::OntR9 => Config {
                 mismatch: MismatchConfig {
-                    rolling_mean_window: Some(31),
+                    rolling_mean_window: Some(11),
                     ..Default::default()
                 },
                 cov: CoverageConfig {

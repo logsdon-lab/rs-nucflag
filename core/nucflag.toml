@@ -2,13 +2,12 @@
 verbose = true
 bp_merge = 5_000
 bp_wg_window = 10_000_000
-merge_across_type = false
 store_pileup = true
 
 [cov]
 n_zscores_low = 3.5
-n_zscores_high = 3.5
-ratio_misjoin = 0.2
+n_zscores_high = 2.5
+ratio_misjoin = 0.01
 ratio_collapse = 1.5
 ratio_false_dupe = 0.5
 

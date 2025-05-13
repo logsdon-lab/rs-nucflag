@@ -19,7 +19,7 @@ fn nucflag_grp(
     ctg: &str,
 ) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
     // Calculate est coverage for region or use provided.
-    let est_median_cov: u64 = df_pileup
+    let est_median_cov: u32 = df_pileup
         .column("cov")?
         .median_reduce()?
         .value()
@@ -32,7 +32,12 @@ fn nucflag_grp(
         cfg.cov.n_zscores_low,
         cfg.cov.n_zscores_high,
     )?;
-
+    // Call peaks in mismatch-base signal.
+    let lf_mismatch_peaks = find_peaks(
+        df_pileup.select(["pos", "mismatch"])?,
+        cfg.mismatch.n_zscores_high,
+        cfg.mismatch.n_zscores_high,
+    )?;
     // Detect indel peaks.
     let lf_indel_peaks = find_peaks(
         df_pileup.select(["pos", "indel"])?,
@@ -40,63 +45,41 @@ fn nucflag_grp(
         cfg.indel.n_zscores_high,
         cfg.indel.n_zscores_high,
     )?;
-    let lf_cov_peaks = lf_cov_peaks.join(
-        lf_indel_peaks,
-        [col("pos")],
-        [col("pos")],
-        JoinArgs::new(JoinType::Left),
-    );
-
-    // Call peaks in mismatch-base signal.
-    let lf_mismatch_peaks = find_peaks(
-        df_pileup.select(["pos", "mismatch"])?,
-        cfg.mismatch.n_zscores_high,
-        cfg.mismatch.n_zscores_high,
-    )?;
-    let lf_cov_peaks = lf_cov_peaks.join(
-        lf_mismatch_peaks,
-        [col("pos")],
-        [col("pos")],
-        JoinArgs::new(JoinType::Left),
-    );
-
-    // Detect indel peaks.
+    // Detect softclip peaks.
     let lf_softclip_peaks = find_peaks(
         df_pileup.select(["pos", "softclip"])?,
         // Don't care about dips in indels.
         cfg.softclip.n_zscores_high,
         cfg.softclip.n_zscores_high,
     )?;
-    let lf_cov_peaks = lf_cov_peaks.join(
-        lf_softclip_peaks,
-        [col("pos")],
-        [col("pos")],
-        JoinArgs::new(JoinType::Left),
-    );
 
-    // Add mapq
     let lf_pileup = lf_cov_peaks
         .join(
-            df_pileup.select(["pos", "mapq"])?.lazy(),
+            lf_indel_peaks,
             [col("pos")],
             [col("pos")],
             JoinArgs::new(JoinType::Left),
         )
-        .with_column(
-            // Calculate het ratio.
-            (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
-                .alias("mismatch_ratio"),
+        .join(
+            lf_mismatch_peaks,
+            [col("pos")],
+            [col("pos")],
+            JoinArgs::new(JoinType::Left),
+        )
+        .join(
+            lf_softclip_peaks,
+            [col("pos")],
+            [col("pos")],
+            JoinArgs::new(JoinType::Left),
+        )
+        .join(
+            df_pileup
+                .select(["pos", "mapq", "indel", "softclip", "bin"])?
+                .lazy(),
+            [col("pos")],
+            [col("pos")],
+            JoinArgs::new(JoinType::Left),
         );
-
-    // Add supplementary and indel counts.
-    let lf_pileup = lf_pileup.join(
-        df_pileup
-            .select(["pos", "indel", "softclip", "bin"])?
-            .lazy(),
-        [col("pos")],
-        [col("pos")],
-        JoinArgs::new(JoinType::Left),
-    );
 
     std::mem::drop(df_pileup);
 

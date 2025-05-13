@@ -1,8 +1,8 @@
-use std::{convert::Infallible, str::FromStr};
+use std::{cmp::Ordering, convert::Infallible, str::FromStr};
 
 use serde::Deserialize;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Hash)]
 pub enum MisassemblyType {
     LowQuality,
     Indel,
@@ -33,6 +33,20 @@ impl MisassemblyType {
     }
 }
 
+impl From<MisassemblyType> for &'static str {
+    fn from(value: MisassemblyType) -> Self {
+        match value {
+            MisassemblyType::LowQuality => "low_quality",
+            MisassemblyType::Indel => "indel",
+            MisassemblyType::SoftClip => "softclip",
+            MisassemblyType::Collapse => "collapse",
+            MisassemblyType::Misjoin => "misjoin",
+            MisassemblyType::FalseDupe => "false_dupe",
+            MisassemblyType::Null => "null",
+        }
+    }
+}
+
 impl FromStr for MisassemblyType {
     type Err = Infallible;
 
@@ -46,5 +60,38 @@ impl FromStr for MisassemblyType {
             "false_dupe" => MisassemblyType::FalseDupe,
             _ => MisassemblyType::Null,
         })
+    }
+}
+
+impl PartialOrd for MisassemblyType {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MisassemblyType {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            // Equal if same.
+            (MisassemblyType::LowQuality, MisassemblyType::LowQuality)
+            | (MisassemblyType::Indel, MisassemblyType::Indel)
+            | (MisassemblyType::SoftClip, MisassemblyType::SoftClip)
+            | (MisassemblyType::Collapse, MisassemblyType::Collapse)
+            | (MisassemblyType::Misjoin, MisassemblyType::Misjoin)
+            | (MisassemblyType::FalseDupe, MisassemblyType::FalseDupe) => Ordering::Equal,
+            // Indel and low quality will never replace each other.
+            (MisassemblyType::LowQuality, _) => Ordering::Less,
+            (MisassemblyType::Indel, _) => Ordering::Less,
+            // Misjoin should be prioritized over softclip
+            (MisassemblyType::SoftClip, MisassemblyType::Misjoin) => Ordering::Less,
+            (MisassemblyType::SoftClip, _) => Ordering::Greater,
+            // Collapse is less than misjoin.
+            (MisassemblyType::Collapse, MisassemblyType::Misjoin) => Ordering::Less,
+            (MisassemblyType::Collapse, _) => Ordering::Greater,
+            // Misjoin and false dupe always takes priority.
+            (MisassemblyType::Misjoin, _) => Ordering::Greater,
+            (MisassemblyType::FalseDupe, _) => Ordering::Greater,
+            (MisassemblyType::Null, _) => unreachable!("Null misassembly type."),
+        }
     }
 }

@@ -82,7 +82,7 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<&str, u64> {
 
     fn try_from(cfg: &MinimumSizeConfig) -> Result<Self, Self::Error> {
         Ok(HashMap::from_iter([
-            ("good", u64::MAX),
+            ("good", 1),
             ("collapse", cfg.collapse.try_into()?),
             ("false_dupe", cfg.false_dupe.try_into()?),
             ("indel", cfg.indel.try_into()?),
@@ -141,8 +141,6 @@ pub struct GeneralConfig {
     pub bp_merge: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
     pub bp_wg_window: usize,
-    /// Merge across misassembly type.
-    pub merge_across_type: bool,
     /// Store pileup data. Toggle off to reduce memory usage.
     pub store_pileup: bool,
 }
@@ -153,7 +151,6 @@ impl Default for GeneralConfig {
             verbose: true,
             bp_merge: 5_000,
             bp_wg_window: 10_000_000,
-            merge_across_type: false,
             store_pileup: true,
         }
     }
@@ -173,7 +170,7 @@ pub struct CoverageConfig {
     /// Minimum coverage ratio required for a false dupe.
     pub ratio_false_dupe: f32,
     /// Baseline coverage used for false-duplication classification. Defaults to average coverage of region.
-    pub baseline: Option<u64>,
+    pub baseline: Option<u32>,
     /// Window to apply rolling mean filter. Reduces noise.
     pub rolling_mean_window: Option<usize>,
 }
@@ -183,7 +180,7 @@ impl Default for CoverageConfig {
         Self {
             n_zscores_high: 3.5,
             n_zscores_low: 3.5,
-            ratio_misjoin: 0.2,
+            ratio_misjoin: 0.01,
             ratio_collapse: 1.5,
             ratio_false_dupe: 0.5,
             rolling_mean_window: None,

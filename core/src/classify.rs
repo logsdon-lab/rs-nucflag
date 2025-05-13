@@ -8,9 +8,9 @@ use crate::{
     pileup::PileupInfo,
     repeats::detect_largest_repeat,
 };
-use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
+use coitrees::{COITree, Interval, IntervalTree};
 use eyre::Context;
-use itertools::{multizip, Itertools};
+use itertools::multizip;
 use noodles::{
     core::{Position, Region},
     fasta,
@@ -81,7 +81,7 @@ fn split_at_ignored_intervals<'a>(
     }
 
     let curr_itv = Interval::new(st, end, status);
-    let new_itvs = subtract_intervals(curr_itv, &all_ovls);
+    let new_itvs = subtract_intervals(curr_itv, all_ovls.into_iter());
 
     // If not equal to initial interval, nothing overlaps. Allow through.
     if new_itvs
@@ -102,70 +102,51 @@ pub(crate) fn merge_misassemblies(
     cfg: Config,
 ) -> eyre::Result<LazyFrame> {
     let bp_merge = cfg.general.bp_merge.try_into()?;
-    let merge_across_type = cfg.general.merge_across_type;
     let cfg_min_size = cfg.minimum_size.unwrap_or_default();
-
-    let itvs_all: Vec<(u64, u64, u8, String)> = multizip((
+    let itvs_all: Vec<(u64, u64, u32, &str)> = multizip((
         df_itvs.column("st")?.u64()?.iter().flatten(),
         df_itvs.column("end")?.u64()?.iter().flatten(),
-        df_itvs.column("cov")?.u8()?.iter().flatten(),
-        df_itvs
-            .column("status")?
-            .str()?
-            .iter()
-            .flatten()
-            .map(String::from),
+        df_itvs.column("cov")?.u32()?.iter().flatten(),
+        df_itvs.column("status")?.str()?.iter().flatten(),
     ))
     .collect();
 
     let df_misasm_itvs = df_itvs
+        .clone()
         .lazy()
         .filter(col("status").neq(lit("good")))
         .collect()?;
 
-    // Group by interval type.
-    let merged_misasm_itvs: Vec<Interval<(&str, u8)>> = multizip((
-        df_misasm_itvs.column("st")?.u64()?.iter().flatten(),
-        df_misasm_itvs.column("end")?.u64()?.iter().flatten(),
-        df_misasm_itvs.column("cov")?.u8()?.iter().flatten(),
-        df_misasm_itvs.column("status")?.str()?.iter().flatten(),
-    ))
-    .chunk_by(|a| a.3)
-    .into_iter()
-    .fold(Vec::default(), |mut acc, (grp, grps)| {
-        // Add base bp merge.
-        acc.extend(merge_intervals(
-            grps.into_iter()
-                .map(|(st, end, cov, status)| Interval::new(st as i32, end as i32, (status, cov))),
-            bp_merge,
-            |_, _| true,
-            // Average coverage.
-            |itv_1, itv_2| (itv_1.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2),
-            |itv: Interval<(&str, u8)>| Interval::new(itv.first, itv.last, (grp, itv.metadata.1)),
-        ));
-        acc
-    });
-
+    let itvs_misasm = merge_intervals(
+        multizip((
+            df_misasm_itvs.column("st")?.u64()?.iter().flatten(),
+            df_misasm_itvs.column("end")?.u64()?.iter().flatten(),
+            df_misasm_itvs.column("cov")?.u32()?.iter().flatten(),
+            df_misasm_itvs.column("status")?.str()?.iter().flatten(),
+        ))
+        .map(|(st, end, cov, status)| {
+            Interval::new(
+                st as i32,
+                end as i32,
+                (MisassemblyType::from_str(status).unwrap(), cov),
+            )
+        }),
+        bp_merge,
+        |_, _| true,
+        |itv_1, itv_2| {
+            let largest_itv = std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| {
+                itv_1.metadata.0.cmp(&itv_2.metadata.0)
+            });
+            (
+                largest_itv.metadata.0,
+                (itv_1.metadata.1 + itv_2.metadata.1) / 2,
+            )
+        },
+        |itv| itv,
+    );
     // Merge overlapping intervals OVER status type choosing largest misassembly type.
-    let final_misasm_itvs: COITree<(&str, u8), usize> = COITree::new(&if merge_across_type {
-        merge_intervals(
-            merged_misasm_itvs.into_iter(),
-            bp_merge,
-            |_, _| true,
-            |itv_1, itv_2| {
-                let largest_itv =
-                    std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| itv_1.len().cmp(&itv_2.len()));
-                (
-                    largest_itv.metadata.0,
-                    (itv_1.metadata.1 + itv_2.metadata.1) / 2,
-                )
-            },
-            |itv| itv,
-        )
-    } else {
-        merged_misasm_itvs
-    });
-
+    let final_misasm_itvs: COITree<(MisassemblyType, u32), usize> =
+        COITree::new(itvs_misasm.iter());
     let thr_minimum_sizes: HashMap<&str, u64> = (&cfg_min_size).try_into()?;
 
     let mut fasta_reader = if let Some(fasta) = fasta {
@@ -190,7 +171,7 @@ pub(crate) fn merge_misassemblies(
     for (st, end, cov, status) in itvs_all {
         let st = st.try_into()?;
         let end = end.try_into()?;
-        let mut largest_ovl: Option<(&str, i32)> = None;
+        let mut largest_ovl: Option<(MisassemblyType, i32)> = None;
         final_misasm_itvs.query(st, end, |ovl_itv| {
             // Fully contained.
             let contains_itv = ovl_itv.first <= st && ovl_itv.last >= end;
@@ -207,9 +188,9 @@ pub(crate) fn merge_misassemblies(
         });
 
         let status = if let Some((new_status, _)) = largest_ovl {
-            new_status.to_owned()
+            Into::<&'static str>::into(new_status).to_owned()
         } else {
-            status
+            status.to_owned()
         };
 
         // Detect scaffold/homopolymer/simple repeat and replace type.
@@ -286,6 +267,7 @@ pub(crate) fn merge_misassemblies(
         Column::new("thr_size".into(), minimum_sizes),
     ])?;
 
+    // todo switch to subtract
     Ok(df_itvs_all
         .lazy()
         // First reduce interval groups to min/max.
@@ -330,7 +312,7 @@ pub(crate) fn classify_peaks(
     lf_pileup: LazyFrame,
     ctg: &str,
     cfg: &Config,
-    median_cov: u64,
+    median_cov: u32,
 ) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
     let thr_false_dupe = (cfg.cov.ratio_false_dupe * median_cov as f32).floor();
     let thr_collapse = (cfg.cov.ratio_collapse * median_cov as f32).floor();
@@ -390,7 +372,7 @@ pub(crate) fn classify_peaks(
             // low_quality
             // Regions with high mismatch peak and het ratio.
             when(
-                col("mismatch_ratio")
+                (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
                     .gt_eq(lit(cfg.mismatch.ratio_het))
                     .and(col("mismatch_peak").eq(lit("high"))),
             )
@@ -432,7 +414,7 @@ pub(crate) fn classify_peaks(
         .agg([
             col("pos").min().alias("st"),
             col("pos").max().alias("end") + lit(1),
-            col("cov").mean().cast(DataType::UInt8),
+            col("cov").mean().cast(DataType::UInt32),
             col("status").first(),
         ])
         .drop([col("group")])

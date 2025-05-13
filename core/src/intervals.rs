@@ -64,11 +64,14 @@ where
 
 /// Subtract interval by a list of non-overlapping intervals.
 /// * See [`merge_intervals`].
-pub fn subtract_intervals<T: Clone>(itv: Interval<T>, other: &[Interval<T>]) -> Vec<Interval<T>> {
-    let mut split_intervals = Vec::with_capacity(other.len() + 1);
+pub fn subtract_intervals<T: Clone>(
+    itv: Interval<T>,
+    other: impl Iterator<Item = Interval<T>>,
+) -> Vec<Interval<T>> {
+    let mut split_intervals = Vec::new();
     let mut st = itv.first;
     let mut last = itv.last;
-    for ovl_itv in other.iter().sorted_by(|a, b| a.first.cmp(&b.first)) {
+    for ovl_itv in other.into_iter().sorted_by(|a, b| a.first.cmp(&b.first)) {
         if last >= ovl_itv.first && last <= ovl_itv.last {
             //    |---|
             // * |---|
@@ -198,7 +201,7 @@ mod tests {
         //    |---|
         let itv = Interval::new(ST, END, "");
         let itvs = [Interval::new(1, 3, "")];
-        let res = subtract_intervals(itv, &itvs);
+        let res = subtract_intervals(itv, itvs.into_iter());
         assert_itvs_equal(&[itv], &res);
     }
 
@@ -209,7 +212,7 @@ mod tests {
         //    |---|
         let itv = Interval::new(ST, END, "");
         let itvs = [Interval::new(1, 5, "")];
-        let res = subtract_intervals(itv, &itvs);
+        let res = subtract_intervals(itv, itvs.into_iter());
         assert_itvs_equal(&[Interval::new(5, 8, "")], &res);
     }
 
@@ -220,7 +223,7 @@ mod tests {
         //    |---|
         let itv = Interval::new(ST, END, "");
         let itvs = [Interval::new(6, 10, "")];
-        let res = subtract_intervals(itv, &itvs);
+        let res = subtract_intervals(itv, itvs.into_iter());
         assert_itvs_equal(&[Interval::new(4, 6, "")], &res);
     }
 
@@ -231,7 +234,7 @@ mod tests {
         //    |---|
         let itv = Interval::new(ST, END, "");
         let itvs = [Interval::new(5, 7, "")];
-        let res = subtract_intervals(itv, &itvs);
+        let res = subtract_intervals(itv, itvs.into_iter());
         assert_itvs_equal(&[Interval::new(4, 5, ""), Interval::new(7, 8, "")], &res);
     }
 
@@ -242,7 +245,7 @@ mod tests {
         //    |---|
         let itv = Interval::new(ST, END, "");
         let itvs = [Interval::new(ST, END, "")];
-        let res = subtract_intervals(itv, &itvs);
+        let res = subtract_intervals(itv, itvs.into_iter());
         assert!(res.is_empty());
     }
 
@@ -257,7 +260,7 @@ mod tests {
             Interval::new(5, 7, ""),
             Interval::new(9, 10, ""),
         ];
-        let res = subtract_intervals(itv, &itvs);
+        let res = subtract_intervals(itv, itvs.into_iter());
         assert_itvs_equal(
             &[
                 Interval::new(1, 2, ""),

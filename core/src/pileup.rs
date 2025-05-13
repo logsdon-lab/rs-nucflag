@@ -14,10 +14,10 @@ use std::{fs::File, path::Path};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PileupInfo {
-    pub n_cov: u64,
-    pub n_mismatch: u64,
-    pub n_indel: u64,
-    pub n_softclip: u64,
+    pub n_cov: u32,
+    pub n_mismatch: u32,
+    pub n_indel: u32,
+    pub n_softclip: u32,
     pub mapq: Vec<u8>,
 }
 
