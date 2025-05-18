@@ -1,8 +1,8 @@
 use core::str;
-use std::{fmt::Debug, path::Path, str::FromStr};
+use std::{collections::HashMap, fmt::Debug, path::Path, str::FromStr};
 
 use crate::{
-    binning::group_pileup_by_ani,
+    binning::{group_pileup_by_ani, BinStats},
     classify::{classify_peaks, merge_misassemblies, merge_pileup_info, NucFlagResult},
     config::Config,
     misassembly::MisassemblyType,
@@ -17,7 +17,7 @@ fn nucflag_grp(
     df_pileup: DataFrame,
     cfg: &Config,
     ctg: &str,
-) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
+) -> eyre::Result<(DataFrame, DataFrame, BinStats)> {
     // Calculate est coverage for region or use provided.
     let est_median_cov: u32 = df_pileup
         .column("cov")?
@@ -124,33 +124,29 @@ pub fn nucflag(
                 .collect()?]
         };
 
-    let (dfs_itvs, dfs_pileup): (Vec<LazyFrame>, Vec<Option<LazyFrame>>) = df_pileup_groups
-        .into_par_iter()
-        .map(|df_pileup_grp| {
-            let (df_itv, df_pileup) = nucflag_grp(df_pileup_grp, &cfg, &ctg).unwrap();
-            (df_itv.lazy(), df_pileup.map(|df| df.lazy()))
-        })
-        .unzip();
+    let (dfs_itvs, (dfs_pileup, bin_stats)): (Vec<LazyFrame>, (Vec<LazyFrame>, Vec<BinStats>)) =
+        df_pileup_groups
+            .into_par_iter()
+            .map(|df_pileup_grp| {
+                let (df_itv, df_pileup, bin_stats) =
+                    nucflag_grp(df_pileup_grp, &cfg, &ctg).unwrap();
+                (df_itv.lazy(), (df_pileup.lazy(), bin_stats))
+            })
+            .unzip();
     let df_itvs = concat(dfs_itvs, Default::default())?
         .sort(["st"], Default::default())
         .collect()?;
-
-    let df_pileup = if cfg.general.store_pileup {
-        Some(
-            concat(
-                dfs_pileup.into_iter().flatten().collect::<Vec<LazyFrame>>(),
-                Default::default(),
-            )?
-            .sort(["chrom", "pos"], Default::default())
-            .collect()?,
-        )
-    } else {
-        None
-    };
+    let bin_stats: HashMap<u64, BinStats> = bin_stats
+        .into_iter()
+        .map(|bstats| (bstats.num, bstats))
+        .collect();
+    let df_pileup = concat(dfs_pileup, Default::default())?
+        .sort(["chrom", "pos"], Default::default())
+        .collect()?;
 
     // Then merge and filter.
     log::info!("Merging intervals in {ctg}:{st}-{end}.");
-    let df_itvs_final = merge_misassemblies(df_itvs, &ctg, fasta, ignore_itvs, cfg)?
+    let df_itvs_final = merge_misassemblies(df_itvs, bin_stats, &ctg, fasta, ignore_itvs, cfg)?
         .with_columns([
             lit(ctg.clone()).alias("chrom"),
             col("st").alias("thickStart"),
@@ -201,7 +197,7 @@ pub fn nucflag(
 
     log::info!("Detected {n_misassemblies} misassemblies for {ctg}:{st}-{end}.",);
     Ok(NucFlagResult {
-        cov: df_pileup,
+        pileup: df_pileup,
         regions: df_itvs_final,
     })
 }

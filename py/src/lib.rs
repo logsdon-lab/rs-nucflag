@@ -21,9 +21,9 @@ pub struct PyNucFlagResult {
     /// End of region.
     #[pyo3(get)]
     pub end: i32,
-    /// Coverage regions.
+    /// Pileup of regions.
     #[pyo3(get)]
-    pub cov: Option<PyDataFrame>,
+    pub pileup: PyDataFrame,
     /// Regions and their status.
     #[pyo3(get)]
     pub regions: PyDataFrame,
@@ -156,7 +156,7 @@ fn run_nucflag_itv(
             ctg: itv.metadata,
             st: itv.first,
             end: itv.last,
-            cov: res.cov.map(PyDataFrame),
+            pileup: PyDataFrame(res.pileup),
             regions: PyDataFrame(res.regions),
         })
         .map_err(|err| PyValueError::new_err(err.to_string()))
@@ -226,7 +226,7 @@ fn run_nucflag(
                     ctg: itv.metadata,
                     st: itv.first,
                     end: itv.last,
-                    cov: res.cov.map(PyDataFrame),
+                    pileup: PyDataFrame(res.pileup),
                     regions: PyDataFrame(res.regions),
                 }),
                 Err(err) => {

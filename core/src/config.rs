@@ -99,7 +99,7 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<&str, u64> {
 impl Default for MinimumSizeConfig {
     fn default() -> Self {
         Self {
-            collapse: 1,
+            collapse: 100,
             misjoin: 1,
             low_quality: 1,
             false_dupe: 20_000,
@@ -141,17 +141,14 @@ pub struct GeneralConfig {
     pub bp_merge: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
     pub bp_wg_window: usize,
-    /// Store pileup data. Toggle off to reduce memory usage.
-    pub store_pileup: bool,
 }
 
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             verbose: true,
-            bp_merge: 5_000,
+            bp_merge: 50_000,
             bp_wg_window: 10_000_000,
-            store_pileup: true,
         }
     }
 }

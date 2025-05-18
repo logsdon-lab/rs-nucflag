@@ -2,6 +2,7 @@ use core::str;
 use std::{collections::HashMap, fmt::Debug, fs::File, io::BufReader, path::Path, str::FromStr};
 
 use crate::{
+    binning::BinStats,
     config::Config,
     intervals::{merge_intervals, subtract_intervals},
     misassembly::MisassemblyType,
@@ -10,7 +11,7 @@ use crate::{
 };
 use coitrees::{COITree, Interval, IntervalTree};
 use eyre::Context;
-use itertools::multizip;
+use itertools::{multizip, Itertools};
 use noodles::{
     core::{Position, Region},
     fasta,
@@ -96,6 +97,7 @@ fn split_at_ignored_intervals<'a>(
 
 pub(crate) fn merge_misassemblies(
     df_itvs: DataFrame,
+    bin_stats: HashMap<u64, BinStats>,
     ctg: &str,
     fasta: Option<impl AsRef<Path> + Debug>,
     ignore_itvs: Option<&COITree<String, usize>>,
@@ -103,11 +105,12 @@ pub(crate) fn merge_misassemblies(
 ) -> eyre::Result<LazyFrame> {
     let bp_merge = cfg.general.bp_merge.try_into()?;
     let cfg_min_size = cfg.minimum_size.unwrap_or_default();
-    let itvs_all: Vec<(u64, u64, u32, &str)> = multizip((
+    let itvs_all: Vec<(u64, u64, u32, &str, u64)> = multizip((
         df_itvs.column("st")?.u64()?.iter().flatten(),
         df_itvs.column("end")?.u64()?.iter().flatten(),
         df_itvs.column("cov")?.u32()?.iter().flatten(),
         df_itvs.column("status")?.str()?.iter().flatten(),
+        df_itvs.column("bin")?.u64()?.iter().flatten(),
     ))
     .collect();
 
@@ -166,9 +169,8 @@ pub(crate) fn merge_misassemblies(
     let mut ends = Vec::with_capacity(itvs_all.len());
     let mut covs = Vec::with_capacity(itvs_all.len());
     let mut statuses = Vec::with_capacity(itvs_all.len());
-    let mut minimum_sizes = Vec::with_capacity(itvs_all.len());
-    // TODO: Parallelize.
-    for (st, end, cov, status) in itvs_all {
+    let mut bins = Vec::with_capacity(itvs_all.len());
+    for (st, end, cov, status, bin) in itvs_all {
         let st = st.try_into()?;
         let end = end.try_into()?;
         let mut largest_ovl: Option<(MisassemblyType, i32)> = None;
@@ -224,7 +226,7 @@ pub(crate) fn merge_misassemblies(
             status
         };
 
-        // TODO: This might not be the best approach, but it's the easiest :)
+        // This might not be the best approach, but it's the easiest :)
         // Ignoring during the pileup is better as it avoids even considering the region in calculations.
         // However, it complicates smoothing among other things.
         //
@@ -236,13 +238,8 @@ pub(crate) fn merge_misassemblies(
                 sts.push(itv.first);
                 ends.push(itv.last);
                 covs.push(cov);
-                minimum_sizes.push(
-                    thr_minimum_sizes
-                        .get(status.as_str())
-                        .cloned()
-                        .unwrap_or(u64::MIN),
-                );
                 statuses.push(status.clone());
+                bins.push(bin);
             }
             continue;
         }
@@ -251,43 +248,71 @@ pub(crate) fn merge_misassemblies(
         sts.push(st);
         ends.push(end);
         covs.push(cov);
-        minimum_sizes.push(
-            thr_minimum_sizes
-                .get(status.as_str())
-                .cloned()
-                .unwrap_or(u64::MIN),
-        );
         statuses.push(status);
+        bins.push(bin);
     }
+
+    // Calculate derivative within misassembled regions to filter collapses
+    let mut final_sts = Vec::with_capacity(sts.len());
+    let mut final_ends = Vec::with_capacity(ends.len());
+    let mut final_covs = Vec::with_capacity(ends.len());
+    let mut final_statuses = Vec::with_capacity(statuses.len());
+    let group_iter = multizip((sts, ends, covs, statuses, bins));
+    for ((mut status, bin), group_elements) in &group_iter
+        .sorted_by(|a, b| a.0.cmp(&b.0))
+        .chunk_by(|a| (a.3.to_owned(), a.4))
+    {
+        let (mut agg_st, mut agg_end, mut mean_cov) = (i32::MAX, 0, 0);
+        let mut num_elems = 0;
+        let elems: Vec<(i32, i32, u32)> = group_elements
+            .map(|(st, end, cov, _, _)| (st, end, cov))
+            .sorted_by(|a, b| a.0.cmp(&b.0))
+            .collect();
+        // Sum derivative to get overall change in coverage.
+        // A valid collapse should have ~0 change.
+        // If transition, then +/- in one direction.
+        let diff: f32 = elems
+            .windows(2)
+            .map(|a| a[1].2 as f32 - a[0].2 as f32)
+            .sum();
+        for (st, end, cov) in elems.iter() {
+            agg_st = std::cmp::min(*st, agg_st);
+            agg_end = std::cmp::max(*end, agg_end);
+            mean_cov += *cov;
+            num_elems += 1;
+        }
+        // Remove misassemblies less than threshold size.
+        let min_size = thr_minimum_sizes[status.as_str()];
+        let length = (agg_end - agg_st) as u64;
+        if length < min_size {
+            status.clear();
+            status.push_str("good");
+        }
+        mean_cov /= num_elems;
+
+        // Change in coverage is greater than 1 stdev. Indicates that transition and should be ignored.
+        // TODO: Might also apply to false dupe and misjoin. Check.
+        let bin_stats = &bin_stats[&bin];
+        if status == "collapse" && diff.abs() > bin_stats.stdev.abs() {
+            status.clear();
+            status.push_str("good");
+        };
+        final_sts.push(agg_st);
+        final_ends.push(agg_end);
+        final_covs.push(mean_cov);
+        final_statuses.push(status);
+    }
+
     let df_itvs_all = DataFrame::new(vec![
-        Column::new("st".into(), sts),
-        Column::new("end".into(), ends),
-        Column::new("cov".into(), covs),
-        Column::new("status".into(), statuses),
-        Column::new("thr_size".into(), minimum_sizes),
+        Column::new("st".into(), final_sts),
+        Column::new("end".into(), final_ends),
+        Column::new("cov".into(), final_covs),
+        Column::new("status".into(), final_statuses),
     ])?;
 
-    // todo switch to subtract
+    // Reduce final interval groups to min/max.
     Ok(df_itvs_all
         .lazy()
-        // First reduce interval groups to min/max.
-        .with_column(col("status").rle_id().alias("group"))
-        .group_by(["group"])
-        .agg([
-            col("st").min(),
-            col("end").max(),
-            col("cov").median(),
-            col("status").first(),
-            col("thr_size").first(),
-        ])
-        // Reset intervals smaller than filter
-        .with_column(
-            when((col("end") - col("st")).lt_eq(col("thr_size")))
-                .then(lit("good"))
-                .otherwise(col("status"))
-                .alias("status"),
-        )
-        // Then reduce final interval groups to min/max.
         .with_column(col("status").rle_id().alias("group"))
         .group_by(["group"])
         .agg([
@@ -305,7 +330,7 @@ pub struct NucFlagResult {
     /// All called regions.
     pub regions: DataFrame,
     /// Pileup of regions.
-    pub cov: Option<DataFrame>,
+    pub pileup: DataFrame,
 }
 
 pub(crate) fn classify_peaks(
@@ -313,7 +338,7 @@ pub(crate) fn classify_peaks(
     ctg: &str,
     cfg: &Config,
     median_cov: u32,
-) -> eyre::Result<(DataFrame, Option<DataFrame>)> {
+) -> eyre::Result<(DataFrame, DataFrame, BinStats)> {
     let thr_false_dupe = (cfg.cov.ratio_false_dupe * median_cov as f32).floor();
     let thr_collapse = (cfg.cov.ratio_collapse * median_cov as f32).floor();
     let thr_misjoin = (cfg.cov.ratio_misjoin * median_cov as f32).floor();
@@ -351,9 +376,12 @@ pub(crate) fn classify_peaks(
             // Regions with zero coverage or a dip in coverage with a indels or softclipping accounting for majority of the dip.
             // Might be scaffold or misjoined contig. Without reference, not known.
             .when(
-                col("cov").eq(lit(0)).or(col("cov_peak")
-                    .eq(lit("low"))
-                    .and(col("cov").lt_eq(thr_misjoin))),
+                col("cov")
+                    .eq(lit(0))
+                    .or(col("cov_peak")
+                        .eq(lit("low"))
+                        .and(col("cov").lt_eq(thr_misjoin)))
+                    .or((col("cov") - col("indel")).lt_eq(thr_misjoin)),
             )
             .then(lit("misjoin"))
             // false_dupe
@@ -381,6 +409,29 @@ pub(crate) fn classify_peaks(
             .alias("status"),
         );
 
+    let bin_stats = {
+        let df_bin_stats = lf_pileup
+            .clone()
+            .select([col("bin"), col("cov_median"), col("cov_stdev")])
+            .collect()?;
+        BinStats {
+            num: df_bin_stats
+                .column("bin")?
+                .u64()?
+                .first()
+                .unwrap_or_default(),
+            median: df_bin_stats
+                .column("cov_median")?
+                .median_reduce()?
+                .value()
+                .try_extract()?,
+            stdev: df_bin_stats
+                .column("cov_stdev")?
+                .median_reduce()?
+                .value()
+                .try_extract()?,
+        }
+    };
     /*
     // Removed cols to reduce memory consumption.
     col("cov_zscore"),
@@ -407,18 +458,25 @@ pub(crate) fn classify_peaks(
     // Construct intervals.
     // Store [st,end,type,cov]
     let df_itvs = df_pileup
-        .select(["pos", "cov", "mismatch", "status"])?
+        .select(["pos", "cov", "mismatch", "status", "bin"])?
         .lazy()
-        .with_column(col("status").rle_id().alias("group"))
+        .with_column(
+            ((col("pos") - col("pos").shift_and_fill(1, 0))
+                .lt_eq(1)
+                .rle_id()
+                + col("status").rle_id())
+            .alias("group"),
+        )
         .group_by([col("group")])
         .agg([
             col("pos").min().alias("st"),
             col("pos").max().alias("end") + lit(1),
             col("cov").mean().cast(DataType::UInt32),
             col("status").first(),
+            col("bin").first(),
         ])
         .drop([col("group")])
         .collect()?;
 
-    Ok((df_itvs, cfg.general.store_pileup.then_some(df_pileup)))
+    Ok((df_itvs, df_pileup, bin_stats))
 }

@@ -11,6 +11,13 @@ use rs_moddotplot::{compute_group_seq_self_identity, compute_seq_self_identity};
 
 use crate::config::GroupByANIConfig;
 
+#[derive(Debug, Clone)]
+pub struct BinStats {
+    pub num: u64,
+    pub median: f32,
+    pub stdev: f32,
+}
+
 pub fn group_pileup_by_ani(
     mut df: DataFrame,
     fasta: impl AsRef<Path>,
