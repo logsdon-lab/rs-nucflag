@@ -15,7 +15,7 @@ n_zscores_high = 3.5
 ratio_het = 0.2
 
 [indel]
-n_zscores_high = 5.0
+n_zscores_high = 10.0
 ratio_indel = 0.5
 
 [softclip]

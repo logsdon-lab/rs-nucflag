@@ -79,18 +79,21 @@ impl Ord for MisassemblyType {
             | (MisassemblyType::Collapse, MisassemblyType::Collapse)
             | (MisassemblyType::Misjoin, MisassemblyType::Misjoin)
             | (MisassemblyType::FalseDupe, MisassemblyType::FalseDupe) => Ordering::Equal,
+            // Never merge false dupes with others.
+            (MisassemblyType::FalseDupe, _) => Ordering::Less,
+            (_, MisassemblyType::FalseDupe) => Ordering::Less,
             // Indel and low quality will never replace each other.
             (MisassemblyType::LowQuality, _) => Ordering::Less,
             (MisassemblyType::Indel, _) => Ordering::Less,
+            (_, MisassemblyType::Indel) => Ordering::Less,
             // Misjoin should be prioritized over softclip
             (MisassemblyType::SoftClip, MisassemblyType::Misjoin) => Ordering::Less,
             (MisassemblyType::SoftClip, _) => Ordering::Greater,
             // Collapse is greater than misjoin.
             (MisassemblyType::Collapse, MisassemblyType::Misjoin) => Ordering::Greater,
             (MisassemblyType::Collapse, _) => Ordering::Greater,
-            // Misjoin and false dupe always takes priority.
+            // Misjoin always takes priority.
             (MisassemblyType::Misjoin, _) => Ordering::Greater,
-            (MisassemblyType::FalseDupe, _) => Ordering::Greater,
             (MisassemblyType::Null, _) => unreachable!("Null misassembly type."),
         }
     }

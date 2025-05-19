@@ -37,6 +37,9 @@ impl From<Preset> for Config {
                     ..Default::default()
                 },
                 cov: CoverageConfig {
+                    n_zscores_high: 3.0,
+                    n_zscores_low: 3.0,
+                    ratio_misjoin: 0.2,
                     rolling_mean_window: Some(31),
                     ..Default::default()
                 },

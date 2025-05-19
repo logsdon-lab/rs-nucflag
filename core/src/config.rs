@@ -45,6 +45,9 @@ impl Config {
         Self {
             general: self.general,
             cov: CoverageConfig {
+                n_zscores_high: other.cov.n_zscores_high,
+                n_zscores_low: other.cov.n_zscores_low,
+                ratio_misjoin: other.cov.ratio_misjoin,
                 rolling_mean_window: other.cov.rolling_mean_window,
                 ..self.cov
             },
@@ -222,7 +225,7 @@ pub struct IndelConfig {
 impl Default for IndelConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 5.0,
+            n_zscores_high: 10.0,
             ratio_indel: 0.5,
             rolling_mean_window: Some(11),
         }

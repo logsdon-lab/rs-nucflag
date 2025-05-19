@@ -249,9 +249,10 @@ pub(crate) fn merge_misassemblies(
                 .map(|(_, run)| run.sum::<f32>())
                 .minmax();
             let stdev = bin_stats.stdev.abs();
+            // eprintln!("Collapse: {ctg}:{agg_st}-{agg_end} with coverage changes ({min_max_change:?}) less than 1 stdev in bin {bin_stats:?}");
             if let Some((min, max)) = min_max_change
                 .into_option()
-                .filter(|(min, max)| (min.abs() < stdev.abs()) && (max.abs()) < stdev.abs())
+                .filter(|(min, max)| (min.abs() < stdev.abs()) || (max.abs()) < stdev.abs())
             {
                 log::debug!("Filtered out collapse: {ctg}:{agg_st}-{agg_end} with coverage changes ({min},{max}) less than 1 stdev in bin {bin_stats:?}");
                 status.clear();
@@ -371,8 +372,22 @@ pub(crate) fn classify_peaks(
         );
 
     let bin_stats = {
+        // Apply a rolling median and stdev to get bin statistics.
+        let rolling_opts = RollingOptionsFixedWindow {
+            window_size: cfg.general.bp_merge,
+            center: true,
+            ..Default::default()
+        };
         let df_bin_stats = lf_pileup
             .clone()
+            // Only use good regions for bin stats.
+            .filter(col("status").eq(lit("good")))
+            .with_columns([
+                col("cov")
+                    .rolling_median(rolling_opts.clone())
+                    .alias("cov_median"),
+                col("cov").rolling_std(rolling_opts).alias("cov_stdev"),
+            ])
             .select([col("bin"), col("cov_median"), col("cov_stdev")])
             .collect()?;
         BinStats {
