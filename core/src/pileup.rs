@@ -10,7 +10,10 @@ use noodles::{
         Header,
     },
 };
+use polars::prelude::*;
 use std::{fs::File, path::Path};
+
+use crate::config::Config;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PileupInfo {
@@ -209,6 +212,53 @@ impl AlignmentFile {
             pileups: pileup_infos,
         })
     }
+}
+
+pub(crate) fn merge_pileup_info(
+    pileup: Vec<PileupInfo>,
+    st: u64,
+    end: u64,
+    cfg: &Config,
+) -> eyre::Result<DataFrame> {
+    let (mut cov_cnts, mut mismatch_cnts, mut mapq_cnts, mut indel_cnts, mut softclip_cnts) = (
+        Vec::with_capacity(pileup.len()),
+        Vec::with_capacity(pileup.len()),
+        Vec::with_capacity(pileup.len()),
+        Vec::with_capacity(pileup.len()),
+        Vec::with_capacity(pileup.len()),
+    );
+    for p in pileup.into_iter() {
+        cov_cnts.push(p.n_cov);
+        mismatch_cnts.push(p.n_mismatch);
+        mapq_cnts.push(p.median_mapq().unwrap_or(0));
+        indel_cnts.push(p.n_indel);
+        softclip_cnts.push(p.n_softclip);
+    }
+
+    let mut lf = DataFrame::new(vec![
+        Column::new("pos".into(), st..end + 1),
+        Column::new("cov".into(), cov_cnts),
+        Column::new("mismatch".into(), mismatch_cnts),
+        Column::new("mapq".into(), mapq_cnts),
+        Column::new("indel".into(), indel_cnts),
+        Column::new("softclip".into(), softclip_cnts),
+    ])?
+    .lazy();
+
+    for (colname, window_size) in [
+        ("cov", cfg.cov.rolling_mean_window),
+        ("mismatch", cfg.mismatch.rolling_mean_window),
+        ("indel", cfg.indel.rolling_mean_window),
+    ] {
+        if let Some(window_size) = window_size {
+            lf = lf.with_column(col(colname).rolling_mean(RollingOptionsFixedWindow {
+                window_size,
+                center: true,
+                ..Default::default()
+            }))
+        };
+    }
+    Ok(lf.collect()?)
 }
 
 #[cfg(test)]

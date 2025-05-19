@@ -6,7 +6,6 @@ use crate::{
     config::Config,
     intervals::{merge_intervals, subtract_intervals},
     misassembly::MisassemblyType,
-    pileup::PileupInfo,
     repeats::detect_largest_repeat,
 };
 use coitrees::{COITree, Interval, IntervalTree};
@@ -17,53 +16,6 @@ use noodles::{
     fasta,
 };
 use polars::prelude::*;
-
-pub(crate) fn merge_pileup_info(
-    pileup: Vec<PileupInfo>,
-    st: u64,
-    end: u64,
-    cfg: &Config,
-) -> eyre::Result<DataFrame> {
-    let (mut cov_cnts, mut mismatch_cnts, mut mapq_cnts, mut indel_cnts, mut softclip_cnts) = (
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-        Vec::with_capacity(pileup.len()),
-    );
-    for p in pileup.into_iter() {
-        cov_cnts.push(p.n_cov);
-        mismatch_cnts.push(p.n_mismatch);
-        mapq_cnts.push(p.median_mapq().unwrap_or(0));
-        indel_cnts.push(p.n_indel);
-        softclip_cnts.push(p.n_softclip);
-    }
-
-    let mut lf = DataFrame::new(vec![
-        Column::new("pos".into(), st..end + 1),
-        Column::new("cov".into(), cov_cnts),
-        Column::new("mismatch".into(), mismatch_cnts),
-        Column::new("mapq".into(), mapq_cnts),
-        Column::new("indel".into(), indel_cnts),
-        Column::new("softclip".into(), softclip_cnts),
-    ])?
-    .lazy();
-
-    for (colname, window_size) in [
-        ("cov", cfg.cov.rolling_mean_window),
-        ("mismatch", cfg.mismatch.rolling_mean_window),
-        ("indel", cfg.indel.rolling_mean_window),
-    ] {
-        if let Some(window_size) = window_size {
-            lf = lf.with_column(col(colname).rolling_mean(RollingOptionsFixedWindow {
-                window_size,
-                center: true,
-                ..Default::default()
-            }))
-        };
-    }
-    Ok(lf.collect()?)
-}
 
 fn split_at_ignored_intervals<'a>(
     st: i32,
@@ -268,13 +220,7 @@ pub(crate) fn merge_misassemblies(
             .map(|(st, end, cov, _, _)| (st, end, cov))
             .sorted_by(|a, b| a.0.cmp(&b.0))
             .collect();
-        // Sum derivative to get overall change in coverage.
-        // A valid collapse should have ~0 change.
-        // If transition, then +/- in one direction.
-        let diff: f32 = elems
-            .windows(2)
-            .map(|a| a[1].2 as f32 - a[0].2 as f32)
-            .sum();
+        // Get min max of region.
         for (st, end, cov) in elems.iter() {
             agg_st = std::cmp::min(*st, agg_st);
             agg_end = std::cmp::max(*end, agg_end);
@@ -293,10 +239,25 @@ pub(crate) fn merge_misassemblies(
         // Change in coverage is greater than 1 stdev. Indicates that transition and should be ignored.
         // TODO: Might also apply to false dupe and misjoin. Check.
         let bin_stats = &bin_stats[&bin];
-        if status == "collapse" && diff.abs() > bin_stats.stdev.abs() {
-            status.clear();
-            status.push_str("good");
-        };
+        if status == "collapse" {
+            // Get runs of same signed changes.
+            let min_max_change = elems
+                .windows(2)
+                .map(|a| a[1].2 as f32 - a[0].2 as f32)
+                .chunk_by(|a| a.is_sign_negative())
+                .into_iter()
+                .map(|(_, run)| run.sum::<f32>())
+                .minmax();
+            let stdev = bin_stats.stdev.abs();
+            if let Some((min, max)) = min_max_change
+                .into_option()
+                .filter(|(min, max)| (min.abs() < stdev.abs()) && (max.abs()) < stdev.abs())
+            {
+                log::debug!("Filtered out collapse: {ctg}:{agg_st}-{agg_end} with coverage changes ({min},{max}) less than 1 stdev in bin {bin_stats:?}");
+                status.clear();
+                status.push_str("good");
+            }
+        }
         final_sts.push(agg_st);
         final_ends.push(agg_end);
         final_covs.push(mean_cov);

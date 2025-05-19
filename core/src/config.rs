@@ -117,6 +117,7 @@ pub struct GroupByANIConfig {
     /// Size of window to calculate self-identity.
     pub window_size: usize,
     /// Minimum group size.
+    /// * Smaller sizes may result in more false-positives due to coverage changes in transition regions.
     pub min_grp_size: usize,
     /// Minimum identity of group.
     pub min_ident: f32,
@@ -126,7 +127,7 @@ impl Default for GroupByANIConfig {
     fn default() -> Self {
         Self {
             window_size: 5_000,
-            min_grp_size: 50_000,
+            min_grp_size: 100_000,
             min_ident: 80.0,
         }
     }
@@ -221,7 +222,7 @@ pub struct IndelConfig {
 impl Default for IndelConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 8.0,
+            n_zscores_high: 5.0,
             ratio_indel: 0.5,
             rolling_mean_window: Some(11),
         }

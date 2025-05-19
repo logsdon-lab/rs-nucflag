@@ -1,5 +1,5 @@
 use core::str;
-use std::path::Path;
+use std::{collections::VecDeque, path::Path};
 
 use coitrees::{COITree, Interval, IntervalTree};
 use noodles::{
@@ -16,6 +16,17 @@ pub struct BinStats {
     pub num: u64,
     pub median: f32,
     pub stdev: f32,
+}
+
+macro_rules! get_median_cov {
+    ($lf:expr, $start:expr, $end:expr) => {
+        $lf.filter(col("pos").gt_eq($start).and(col("pos").lt_eq($end)))
+            .collect()?
+            .column("cov")?
+            .median_reduce()?
+            .value()
+            .try_extract::<u32>()?
+    };
 }
 
 pub fn group_pileup_by_ani(
@@ -48,15 +59,45 @@ pub fn group_pileup_by_ani(
         log::info!("Grouping repetitive intervals in {ctg}:{st}-{end}.");
         let bed_group_ident = compute_group_seq_self_identity(&bed_ident);
 
-        COITree::new(
-            &bed_group_ident
-                .into_iter()
-                .filter(|r| (r.end - r.start > min_grp_size) && r.avg_perc_id_by_events > min_ident)
-                .enumerate()
-                // 0 is unbinned.
-                .map(|(i, r)| Interval::new(r.start as i32 + st, r.end as i32 + st, (i + 1) as u64))
-                .collect::<Vec<Interval<u64>>>(),
-        )
+        let mut itvs: VecDeque<Interval<u64>> = bed_group_ident
+            .into_iter()
+            .filter(|r| (r.end - r.start > min_grp_size) && r.avg_perc_id_by_events > min_ident)
+            .enumerate()
+            // 0 is unbinned.
+            .map(|(i, r)| Interval::new(r.start as i32 + st, r.end as i32 + st, (i + 1) as u64))
+            .collect();
+
+        let mut final_itvs: Vec<Interval<u64>> = vec![];
+        while let Some(mut itv) = itvs.pop_front() {
+            let Some(mut next_itv) = itvs.pop_front() else {
+                final_itvs.push(itv);
+                break;
+            };
+            // Ensure no small gaps between.
+            let dst_between = next_itv.first - itv.last;
+            if dst_between <= min_grp_size.try_into()? {
+                let lf_cov = df.select(["pos", "cov"])?.lazy();
+
+                let cov_left = get_median_cov!(lf_cov.clone(), itv.first, itv.last) as i32;
+                let cov_between = get_median_cov!(lf_cov.clone(), itv.last, next_itv.first) as i32;
+                let cov_right = get_median_cov!(lf_cov, next_itv.first, next_itv.last) as i32;
+
+                let cov_diff_left = cov_between.abs_diff(cov_left);
+                let cov_diff_right = cov_between.abs_diff(cov_right);
+
+                // Calculate cov difference and choose side to fill gap.
+                if cov_diff_left < cov_diff_right {
+                    itv.last = next_itv.first;
+                } else {
+                    next_itv.first = itv.last;
+                }
+                itv.last = next_itv.first;
+            }
+            final_itvs.push(itv);
+            // Add to front to continue merging.
+            itvs.push_front(next_itv);
+        }
+        COITree::new(&final_itvs)
     };
     log::info!(
         "Detected {} region(s) in {ctg}:{st}-{end}.",

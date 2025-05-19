@@ -85,8 +85,8 @@ impl Ord for MisassemblyType {
             // Misjoin should be prioritized over softclip
             (MisassemblyType::SoftClip, MisassemblyType::Misjoin) => Ordering::Less,
             (MisassemblyType::SoftClip, _) => Ordering::Greater,
-            // Collapse is less than misjoin.
-            (MisassemblyType::Collapse, MisassemblyType::Misjoin) => Ordering::Less,
+            // Collapse is greater than misjoin.
+            (MisassemblyType::Collapse, MisassemblyType::Misjoin) => Ordering::Greater,
             (MisassemblyType::Collapse, _) => Ordering::Greater,
             // Misjoin and false dupe always takes priority.
             (MisassemblyType::Misjoin, _) => Ordering::Greater,

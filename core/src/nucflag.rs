@@ -3,11 +3,11 @@ use std::{collections::HashMap, fmt::Debug, path::Path, str::FromStr};
 
 use crate::{
     binning::{group_pileup_by_ani, BinStats},
-    classify::{classify_peaks, merge_misassemblies, merge_pileup_info, NucFlagResult},
+    classify::{classify_peaks, merge_misassemblies, NucFlagResult},
     config::Config,
     misassembly::MisassemblyType,
     peak::find_peaks,
-    pileup::AlignmentFile,
+    pileup::{merge_pileup_info, AlignmentFile},
 };
 use coitrees::{COITree, Interval};
 use polars::prelude::*;
