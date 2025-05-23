@@ -4,9 +4,9 @@ use std::{collections::HashMap, fmt::Debug, fs::File, io::BufReader, path::Path,
 use crate::{
     binning::BinStats,
     config::Config,
-    intervals::{merge_intervals, subtract_intervals},
+    intervals::{merge_intervals, overlap_length, subtract_intervals},
     misassembly::MisassemblyType,
-    repeats::detect_largest_repeat,
+    repeats::{detect_largest_repeat, Repeat},
 };
 use coitrees::{COITree, Interval, IntervalTree};
 use eyre::Context;
@@ -15,18 +15,18 @@ use noodles::{
     core::{Position, Region},
     fasta,
 };
-use polars::prelude::*;
+use polars::{frame::row::Row, prelude::*};
 
 fn split_at_ignored_intervals<'a>(
     st: i32,
     end: i32,
-    status: &'a str,
+    status: &'a MisassemblyType,
     itree_ignore_itvs: &COITree<String, usize>,
-) -> Option<Vec<Interval<&'a str>>> {
+) -> Option<Vec<Interval<&'a MisassemblyType>>> {
     // Trim interval by ignored intervals.
     let mut all_ovls = vec![];
     itree_ignore_itvs.query(st, end, |itv| {
-        all_ovls.push(Interval::new(itv.first, itv.last, ""));
+        all_ovls.push(Interval::new(itv.first, itv.last, &MisassemblyType::Null));
     });
 
     if all_ovls.is_empty() {
@@ -72,6 +72,7 @@ pub(crate) fn merge_misassemblies(
         .filter(col("status").neq(lit("good")))
         .collect()?;
 
+    // Merge overlapping misassembly intervals OVER status type choosing largest misassembly type.
     let itvs_misasm = merge_intervals(
         multizip((
             df_misasm_itvs.column("st")?.u64()?.iter().flatten(),
@@ -99,10 +100,9 @@ pub(crate) fn merge_misassemblies(
         },
         |itv| itv,
     );
-    // Merge overlapping intervals OVER status type choosing largest misassembly type.
     let final_misasm_itvs: COITree<(MisassemblyType, u32), usize> =
         COITree::new(itvs_misasm.iter());
-    let thr_minimum_sizes: HashMap<&str, u64> = (&cfg_min_size).try_into()?;
+    let thr_minimum_sizes: HashMap<MisassemblyType, u64> = (&cfg_min_size).try_into()?;
 
     let mut fasta_reader = if let Some(fasta) = fasta {
         log::info!("Reading indexed {fasta:?} for {ctg} to detect further classify misassemblies by repeat.");
@@ -116,43 +116,43 @@ pub(crate) fn merge_misassemblies(
         None
     };
 
-    // Convert good columns to misassembly types.
-    let mut sts = Vec::with_capacity(itvs_all.len());
-    let mut ends = Vec::with_capacity(itvs_all.len());
-    let mut covs = Vec::with_capacity(itvs_all.len());
-    let mut statuses = Vec::with_capacity(itvs_all.len());
-    let mut bins = Vec::with_capacity(itvs_all.len());
+    // Convert good intervals overlapping misassembly types.
+    // Detect repeats.
+    // Remove ignored intervals.
+    let mut reclassified_itvs_all: Vec<Interval<(MisassemblyType, u32, u64)>> =
+        Vec::with_capacity(itvs_all.len());
     for (st, end, cov, status, bin) in itvs_all {
         let st = st.try_into()?;
         let end = end.try_into()?;
-        let mut largest_ovl: Option<(MisassemblyType, i32)> = None;
+        let len = (end - st) as f32;
+        let mut largest_ovl: Option<MisassemblyType> = None;
+        let mtype = MisassemblyType::from_str(status)?;
         final_misasm_itvs.query(st, end, |ovl_itv| {
-            // Fully contained.
-            let contains_itv = ovl_itv.first <= st && ovl_itv.last >= end;
-            match (largest_ovl, contains_itv) {
-                (None, true) => largest_ovl = Some((ovl_itv.metadata.0, ovl_itv.len())),
-                (Some((_, other_itv_len)), true) => {
+            let ovl_prop = overlap_length(st, end, ovl_itv.first, ovl_itv.last) as f32 / len;
+            if ovl_prop < 0.5 {
+                return;
+            }
+            match largest_ovl {
+                None => largest_ovl = Some(ovl_itv.metadata.0),
+                Some(other_itv_mtype) => {
                     // Take larger overlap as status
-                    if ovl_itv.len() > other_itv_len {
-                        largest_ovl = Some((ovl_itv.metadata.0, ovl_itv.len()))
+                    if other_itv_mtype.gt(&mtype) {
+                        largest_ovl = Some(other_itv_mtype)
                     }
                 }
-                _ => (),
             }
         });
-
-        let status = if let Some((new_status, _)) = largest_ovl {
-            Into::<&'static str>::into(new_status).to_owned()
-        } else {
-            status.to_owned()
-        };
+        let status = largest_ovl
+            .filter(|ovl_mtype| ovl_mtype.gt(&mtype))
+            .unwrap_or_else(|| MisassemblyType::from_str(status).unwrap());
 
         // Detect scaffold/homopolymer/simple repeat and replace type.
         let status = if let (Some(reader), Some(cfg_rpt)) = (
             fasta_reader.as_mut(),
             // Must have repeat config and the current status must be in types to check.
-            MisassemblyType::from_str(&status)
-                .map(|mtype| cfg.repeat.as_ref().map(|cfg_rpt| (mtype, cfg_rpt)))?
+            cfg.repeat
+                .as_ref()
+                .map(|cfg_rpt| (mtype, cfg_rpt))
                 .and_then(|(mtype, cfg_rpt)| {
                     cfg_rpt.check_types.contains(&mtype).then_some(cfg_rpt)
                 }),
@@ -172,7 +172,15 @@ pub(crate) fn merge_misassemblies(
             let record = reader.query(&region)?;
             let seq = str::from_utf8(record.sequence().as_ref())?;
             detect_largest_repeat(seq)
-                .and_then(|rpt| (rpt.prop > cfg_rpt.ratio_repeat).then(|| rpt.repeat.to_string()))
+                .and_then(|rpt| {
+                    // If any number of N's is scaffold.
+                    if rpt.repeat == Repeat::Scaffold {
+                        Some(MisassemblyType::Repeat(rpt.repeat))
+                    } else {
+                        (rpt.prop > cfg_rpt.ratio_repeat)
+                            .then_some(MisassemblyType::Repeat(rpt.repeat))
+                    }
+                })
                 .unwrap_or(status)
         } else {
             status
@@ -187,90 +195,109 @@ pub(crate) fn merge_misassemblies(
             ignore_itvs.and_then(|itree| split_at_ignored_intervals(st, end, &status, itree))
         {
             for itv in split_intervals {
-                sts.push(itv.first);
-                ends.push(itv.last);
-                covs.push(cov);
-                statuses.push(status.clone());
-                bins.push(bin);
+                reclassified_itvs_all.push(Interval::new(itv.first, itv.last, (status, cov, bin)));
             }
             continue;
         }
 
         // Otherwise, add misassembly.
-        sts.push(st);
-        ends.push(end);
-        covs.push(cov);
-        statuses.push(status);
-        bins.push(bin);
+        reclassified_itvs_all.push(Interval::new(st, end, (status, cov, bin)));
     }
-
-    // Calculate derivative within misassembled regions to filter collapses
-    let mut final_sts = Vec::with_capacity(sts.len());
-    let mut final_ends = Vec::with_capacity(ends.len());
-    let mut final_covs = Vec::with_capacity(ends.len());
-    let mut final_statuses = Vec::with_capacity(statuses.len());
-    let group_iter = multizip((sts, ends, covs, statuses, bins));
-    for ((mut status, bin), group_elements) in &group_iter
-        .sorted_by(|a, b| a.0.cmp(&b.0))
-        .chunk_by(|a| (a.3.to_owned(), a.4))
+    // Get minimum and maximum positions of sorted, grouped intervals.
+    // Filter collapses based on calculate derivative within misassembled regions
+    let mut minmax_reclassified_itvs_all = vec![];
+    for ((is_mergeable, bin), group_elements) in &reclassified_itvs_all
+        .into_iter()
+        .sorted_by(|a, b| a.first.cmp(&b.first))
+        .chunk_by(|a| (a.metadata.0.is_mergeable(), a.metadata.2))
     {
-        let (mut agg_st, mut agg_end, mut mean_cov) = (i32::MAX, 0, 0);
-        let mut num_elems = 0;
-        let elems: Vec<(i32, i32, u32)> = group_elements
-            .map(|(st, end, cov, _, _)| (st, end, cov))
-            .sorted_by(|a, b| a.0.cmp(&b.0))
-            .collect();
-        // Get min max of region.
-        for (st, end, cov) in elems.iter() {
-            agg_st = std::cmp::min(*st, agg_st);
-            agg_end = std::cmp::max(*end, agg_end);
-            mean_cov += *cov;
-            num_elems += 1;
-        }
-        // Remove misassemblies less than threshold size.
-        let min_size = thr_minimum_sizes[status.as_str()];
-        let length = (agg_end - agg_st) as u64;
-        if length < min_size {
-            status.clear();
-            status.push_str("good");
-        }
-        mean_cov /= num_elems;
-
-        // Change in coverage is greater than 1 stdev. Indicates that transition and should be ignored.
-        // TODO: Might also apply to false dupe and misjoin. Check.
-        let bin_stats = &bin_stats[&bin];
-        if status == "collapse" {
-            // Get runs of same signed changes.
-            let min_max_change = elems
-                .windows(2)
-                .map(|a| a[1].2 as f32 - a[0].2 as f32)
-                .chunk_by(|a| a.is_sign_negative())
-                .into_iter()
-                .map(|(_, run)| run.sum::<f32>())
-                .minmax();
-            let stdev = bin_stats.stdev.abs();
-            // eprintln!("Collapse: {ctg}:{agg_st}-{agg_end} with coverage changes ({min_max_change:?}) less than 1 stdev in bin {bin_stats:?}");
-            if let Some((min, max)) = min_max_change
-                .into_option()
-                .filter(|(min, max)| (min.abs() < stdev.abs()) || (max.abs()) < stdev.abs())
-            {
-                log::debug!("Filtered out collapse: {ctg}:{agg_st}-{agg_end} with coverage changes ({min},{max}) less than 1 stdev in bin {bin_stats:?}");
-                status.clear();
-                status.push_str("good");
+        if is_mergeable {
+            let (mut agg_st, mut agg_end, mut mean_cov) = (i32::MAX, 0, 0);
+            let mut agg_status = MisassemblyType::Null;
+            let mut num_elems = 0;
+            let elems: Vec<(i32, i32, MisassemblyType, u32)> = group_elements
+                .map(|itv| (itv.first, itv.last, itv.metadata.0, itv.metadata.1))
+                .sorted_by(|a, b| a.0.cmp(&b.0))
+                .collect();
+            // Get min max of region.
+            for (st, end, status, cov) in elems.iter() {
+                agg_st = std::cmp::min(*st, agg_st);
+                agg_end = std::cmp::max(*end, agg_end);
+                agg_status = std::cmp::max(agg_status, *status);
+                mean_cov += *cov;
+                num_elems += 1;
             }
+            // Remove misassemblies less than threshold size.
+            let min_size = thr_minimum_sizes[&agg_status];
+            let length = (agg_end - agg_st) as u64;
+            if length < min_size {
+                agg_status = MisassemblyType::Null;
+            }
+            mean_cov /= num_elems;
+
+            // Change in coverage is greater than 1 stdev. Indicates that transition and should be ignored.
+            // TODO: Might also apply to false dupe and misjoin. Check.
+            let bin_stats = &bin_stats[&bin];
+            if agg_status == MisassemblyType::Collapse {
+                // Get runs of same signed changes.
+                let min_max_change = elems
+                    .windows(2)
+                    .map(|a| a[1].3 as f32 - a[0].3 as f32)
+                    .chunk_by(|a| a.is_sign_negative())
+                    .into_iter()
+                    .map(|(_, run)| run.sum::<f32>())
+                    .minmax();
+                let stdev = bin_stats.stdev.abs();
+                // eprintln!("Collapse: {ctg}:{agg_st}-{agg_end} with coverage changes ({min_max_change:?}) less than 1 stdev in bin {bin_stats:?}");
+                if let Some((min, max)) = min_max_change
+                    .into_option()
+                    .filter(|(min, max)| (min.abs() < stdev.abs()) || (max.abs()) < stdev.abs())
+                {
+                    log::debug!("Filtered out collapse: {ctg}:{agg_st}-{agg_end} with coverage changes ({min},{max}) less than 1 stdev in bin {bin_stats:?}");
+                    agg_status = MisassemblyType::Null;
+                }
+            }
+            minmax_reclassified_itvs_all.push(Interval::new(
+                agg_st,
+                agg_end,
+                (agg_status, mean_cov),
+            ));
+        } else {
+            minmax_reclassified_itvs_all.extend(
+                group_elements.into_iter().map(|itv| {
+                    Interval::new(itv.first, itv.last, (itv.metadata.0, itv.metadata.1))
+                }),
+            );
         }
-        final_sts.push(agg_st);
-        final_ends.push(agg_end);
-        final_covs.push(mean_cov);
-        final_statuses.push(status);
     }
 
-    let df_itvs_all = DataFrame::new(vec![
-        Column::new("st".into(), final_sts),
-        Column::new("end".into(), final_ends),
-        Column::new("cov".into(), final_covs),
-        Column::new("status".into(), final_statuses),
-    ])?;
+    // Merge again over good regions
+    // Good, indel, and repeat intervals should never overwrite misassembled intervals.
+    let minmax_reclassified_itvs_all: Vec<Row> = minmax_reclassified_itvs_all
+        .into_iter()
+        .map(|itv| {
+            Row::new(vec![
+                AnyValue::Int32(itv.first),
+                AnyValue::Int32(itv.last),
+                AnyValue::String(if itv.metadata.0 == MisassemblyType::Null {
+                    "good"
+                } else {
+                    itv.metadata.0.into()
+                }),
+                AnyValue::UInt32(itv.metadata.1),
+            ])
+        })
+        .collect();
+
+    let df_itvs_all = DataFrame::from_rows_and_schema(
+        &minmax_reclassified_itvs_all,
+        &Schema::from_iter([
+            ("st".into(), DataType::Int32),
+            ("end".into(), DataType::Int32),
+            ("status".into(), DataType::String),
+            ("cov".into(), DataType::UInt32),
+        ]),
+    )?;
 
     // Reduce final interval groups to min/max.
     Ok(df_itvs_all

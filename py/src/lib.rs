@@ -162,6 +162,17 @@ fn run_nucflag_itv(
         .map_err(|err| PyValueError::new_err(err.to_string()))
 }
 
+#[pyfunction]
+#[pyo3(signature = (preset, cfg = None))]
+fn print_config_from_preset(preset: &str, cfg: Option<&str>) -> PyResult<()> {
+    let cfg = read_cfg(cfg, Some(preset)).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    if cfg.general.verbose {
+        simple_logger::init_with_level(log::Level::Debug).expect("Cannot initialize logger.");
+    }
+    log::info!("Using config:\n{cfg:#?}");
+    Ok(())
+}
+
 /// Classify a missassembly from an alignment file.
 ///
 /// # Args
@@ -245,5 +256,6 @@ fn py_nucflag(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_nucflag, m)?)?;
     m.add_function(wrap_pyfunction!(run_nucflag_itv, m)?)?;
     m.add_function(wrap_pyfunction!(get_regions, m)?)?;
+    m.add_function(wrap_pyfunction!(print_config_from_preset, m)?)?;
     Ok(())
 }

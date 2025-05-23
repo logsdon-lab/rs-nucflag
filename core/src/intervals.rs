@@ -62,6 +62,28 @@ where
     merged.into_iter().map(fn_finalizer).collect_vec()
 }
 
+pub fn overlap_length(a_first: i32, a_last: i32, b_first: i32, b_last: i32) -> i32 {
+    if a_first >= b_first && a_last >= b_last {
+        // a  |---|
+        // b |---|
+        b_last - a_first
+    } else if a_first <= b_first && a_last <= b_last {
+        // a |---|
+        // b  |---|
+        a_last - b_first
+    } else if a_first <= b_first && a_last >= b_last {
+        // a |-----|
+        // b  |---|
+        b_last - b_first
+    } else if a_first >= b_first && a_last <= b_last {
+        // a  |-|
+        // b |---|
+        a_last - a_first
+    } else {
+        0
+    }
+}
+
 /// Subtract interval by a list of non-overlapping intervals.
 /// * See [`merge_intervals`].
 pub fn subtract_intervals<T: Clone>(
@@ -100,7 +122,7 @@ pub fn subtract_intervals<T: Clone>(
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_intervals, subtract_intervals};
+    use super::{merge_intervals, overlap_length, subtract_intervals};
     use coitrees::Interval;
     use std::fmt::Debug;
 

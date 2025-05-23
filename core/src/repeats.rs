@@ -3,9 +3,10 @@ use std::{fmt::Display, str::FromStr};
 
 use eyre::bail;
 use itertools::Itertools;
+use serde::Deserialize;
 use suffix::SuffixTable;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Hash)]
 pub enum Repeat {
     /// Scaffold sequence with `N` characters.
     Scaffold,

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::Deserialize;
 
-use crate::misassembly::MisassemblyType;
+use crate::{misassembly::MisassemblyType, repeats::Repeat};
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
@@ -49,6 +49,7 @@ impl Config {
                 n_zscores_low: other.cov.n_zscores_low,
                 ratio_misjoin: other.cov.ratio_misjoin,
                 rolling_mean_window: other.cov.rolling_mean_window,
+                ratio_collapse: other.cov.ratio_collapse,
                 ..self.cov
             },
             mismatch: MismatchConfig {
@@ -69,6 +70,7 @@ impl Config {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct MinimumSizeConfig {
+    pub null: usize,
     pub collapse: usize,
     pub misjoin: usize,
     pub low_quality: usize,
@@ -80,21 +82,30 @@ pub struct MinimumSizeConfig {
     pub scaffold: usize,
 }
 
-impl TryFrom<&MinimumSizeConfig> for HashMap<&str, u64> {
+impl TryFrom<&MinimumSizeConfig> for HashMap<MisassemblyType, u64> {
     type Error = eyre::Error;
 
     fn try_from(cfg: &MinimumSizeConfig) -> Result<Self, Self::Error> {
         Ok(HashMap::from_iter([
-            ("good", 1),
-            ("collapse", cfg.collapse.try_into()?),
-            ("false_dupe", cfg.false_dupe.try_into()?),
-            ("indel", cfg.indel.try_into()?),
-            ("low_quality", cfg.low_quality.try_into()?),
-            ("misjoin", cfg.misjoin.try_into()?),
-            ("softclip", cfg.softclip.try_into()?),
-            ("homopolymer", cfg.homopolymer.try_into()?),
-            ("simple_repeat", cfg.simple_repeat.try_into()?),
-            ("scaffold", cfg.scaffold.try_into()?),
+            (MisassemblyType::Null, cfg.null.try_into()?),
+            (MisassemblyType::Collapse, cfg.collapse.try_into()?),
+            (MisassemblyType::FalseDupe, cfg.false_dupe.try_into()?),
+            (MisassemblyType::Indel, cfg.indel.try_into()?),
+            (MisassemblyType::LowQuality, cfg.low_quality.try_into()?),
+            (MisassemblyType::Misjoin, cfg.misjoin.try_into()?),
+            (MisassemblyType::SoftClip, cfg.softclip.try_into()?),
+            (
+                MisassemblyType::Repeat(Repeat::Homopolymer),
+                cfg.homopolymer.try_into()?,
+            ),
+            (
+                MisassemblyType::Repeat(Repeat::SimpleRepeat),
+                cfg.simple_repeat.try_into()?,
+            ),
+            (
+                MisassemblyType::Repeat(Repeat::Scaffold),
+                cfg.scaffold.try_into()?,
+            ),
         ]))
     }
 }
@@ -102,14 +113,15 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<&str, u64> {
 impl Default for MinimumSizeConfig {
     fn default() -> Self {
         Self {
-            collapse: 100,
+            null: 1,
+            collapse: 500,
             misjoin: 1,
             low_quality: 1,
             false_dupe: 20_000,
             softclip: 1,
             indel: 1,
-            homopolymer: 3,
-            simple_repeat: 4,
+            homopolymer: 1,
+            simple_repeat: 1,
             scaffold: 1,
         }
     }
@@ -151,7 +163,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             verbose: true,
-            bp_merge: 50_000,
+            bp_merge: 5_000,
             bp_wg_window: 10_000_000,
         }
     }
@@ -180,9 +192,9 @@ impl Default for CoverageConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.5,
-            n_zscores_low: 3.5,
+            n_zscores_low: 4.5,
             ratio_misjoin: 0.01,
-            ratio_collapse: 1.5,
+            ratio_collapse: 2.0,
             ratio_false_dupe: 0.5,
             rolling_mean_window: None,
             baseline: None,
@@ -227,7 +239,7 @@ impl Default for IndelConfig {
         Self {
             n_zscores_high: 10.0,
             ratio_indel: 0.5,
-            rolling_mean_window: Some(11),
+            rolling_mean_window: Some(5),
         }
     }
 }
@@ -255,24 +267,28 @@ impl Default for SoftClipConfig {
 pub struct RepeatConfig {
     /// Which misassembles to check for repeats.
     /// * Usually types associated with drops in coverage.
-    /// * Defaults to [`MisassemblyType::Misjoin`] and [`MisassemblyType::Indel`].
+    /// * Defaults to [`MisassemblyType::Misjoin`], [`MisassemblyType::Indel`], and [`MisassemblyType::FalseDupe`].
     pub check_types: HashSet<MisassemblyType>,
     /// Ratio required of checked region to call as repeat.
     /// * Defaults to a majority.
     pub ratio_repeat: f32,
     /// Extend region checked by n bases on both ends.
     /// By default is the misassembled regions length.
-    /// * Sometimes this is not enough is only 1 position long.
-    /// * Defaults to 2 bp.  
+    /// * Sometimes this is not enough as only 1 position long.
+    /// * Defaults to 5 bp.  
     pub bp_extend: usize,
 }
 
 impl Default for RepeatConfig {
     fn default() -> Self {
         Self {
-            check_types: HashSet::from_iter([MisassemblyType::Misjoin, MisassemblyType::Indel]),
+            check_types: HashSet::from_iter([
+                MisassemblyType::Misjoin,
+                MisassemblyType::Indel,
+                MisassemblyType::FalseDupe,
+            ]),
             ratio_repeat: 0.5,
-            bp_extend: 2,
+            bp_extend: 5,
         }
     }
 }
