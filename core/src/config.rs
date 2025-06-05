@@ -58,6 +58,8 @@ impl Config {
             },
             indel: IndelConfig {
                 rolling_mean_window: other.indel.rolling_mean_window,
+                min_ins_size: other.indel.min_ins_size,
+                min_del_size: other.indel.min_del_size,
                 ..self.indel
             },
             softclip: self.softclip,
@@ -163,7 +165,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             verbose: true,
-            bp_merge: 5_000,
+            bp_merge: 1,
             bp_wg_window: 10_000_000,
         }
     }
@@ -228,8 +230,12 @@ impl Default for MismatchConfig {
 pub struct IndelConfig {
     /// Number of z-scores above the median to flag.
     pub n_zscores_high: f32,
-    /// Ratio used to call indel peaks.
+    /// Ratio required to call indel peaks.
     pub ratio_indel: f32,
+    /// Minimum insertion size to detect in pileup.
+    pub min_ins_size: usize,
+    /// Minimum deletion size to detect in pileup.
+    pub min_del_size: usize,
     /// Window to apply rolling mean filter. Reduces noise.
     pub rolling_mean_window: Option<usize>,
 }
@@ -238,8 +244,10 @@ impl Default for IndelConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 10.0,
-            ratio_indel: 0.5,
-            rolling_mean_window: Some(5),
+            ratio_indel: 0.25,
+            min_ins_size: 2,
+            min_del_size: 2,
+            rolling_mean_window: None,
         }
     }
 }

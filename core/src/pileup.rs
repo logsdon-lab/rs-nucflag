@@ -61,6 +61,8 @@ impl PileupInfo {
 pub fn get_aligned_pairs(
     cg: impl Iterator<Item = (Kind, usize)>,
     pos: usize,
+    min_ins_size: usize,
+    min_del_size: usize,
 ) -> eyre::Result<Vec<(usize, usize, Kind)>> {
     let mut pos: usize = pos;
     let mut qpos: usize = 0;
@@ -80,15 +82,31 @@ pub fn get_aligned_pairs(
                 continue;
             }
             // Track indels and softclips.
+            // Ignore small indels.
             Kind::Insertion | Kind::SoftClip => {
-                pairs.push((qpos, pos, op));
-                qpos += l
+                if op == Kind::Insertion && l < min_ins_size {
+                    for i in pos..(pos + l) {
+                        pairs.push((qpos, i, Kind::Match));
+                        qpos += 1
+                    }
+                } else {
+                    pairs.push((qpos, pos, op));
+                    qpos += l
+                }
             }
             Kind::Deletion => {
-                for i in pos..(pos + l) {
-                    pairs.push((qpos, i, op));
+                if op == Kind::Deletion && l < min_del_size {
+                    for i in pos..(pos + l) {
+                        pairs.push((qpos, i, Kind::Match));
+                        qpos += 1
+                    }
+                    pos += l
+                } else {
+                    for i in pos..(pos + l) {
+                        pairs.push((qpos, i, op));
+                    }
+                    pos += l
                 }
-                pos += l
             }
             Kind::HardClip => {
                 continue;
@@ -162,7 +180,12 @@ impl AlignmentFile {
         }
     }
 
-    pub fn pileup(&mut self, itv: &Interval<String>) -> eyre::Result<PileupSummary> {
+    pub fn pileup(
+        &mut self,
+        itv: &Interval<String>,
+        min_ins_size: usize,
+        min_del_size: usize,
+    ) -> eyre::Result<PileupSummary> {
         let st = TryInto::<usize>::try_into(itv.first)?.clamp(1, usize::MAX);
         let end: usize = itv.last.try_into()?;
         let length = itv.len();
@@ -187,6 +210,8 @@ impl AlignmentFile {
                     let aln_pairs = get_aligned_pairs(
                         cg.iter().flatten().map(|op| (op.kind(), op.len())),
                         read.alignment_start().unwrap().get(),
+                        min_ins_size,
+                        min_del_size,
                     )?;
                     pileup!(read, aln_pairs, st, end, pileup_infos)
                 }
@@ -200,6 +225,8 @@ impl AlignmentFile {
                     let aln_pairs = get_aligned_pairs(
                         cg.iter().flatten().map(|op| (op.kind(), op.len())),
                         read.alignment_start().unwrap()?.get(),
+                        min_ins_size,
+                        min_del_size,
                     )?;
                     pileup!(read, aln_pairs, st, end, pileup_infos)
                 }
@@ -274,7 +301,7 @@ mod test {
             9667240,
             "K1463_2281_chr15_contig-0000423".to_owned(),
         );
-        let res = bam.pileup(&itv).unwrap();
+        let res = bam.pileup(&itv, 1, 1).unwrap();
         assert_eq!(
             res,
             PileupSummary {

@@ -122,7 +122,7 @@ pub fn subtract_intervals<T: Clone>(
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_intervals, overlap_length, subtract_intervals};
+    use super::{merge_intervals, subtract_intervals};
     use coitrees::Interval;
     use std::fmt::Debug;
 

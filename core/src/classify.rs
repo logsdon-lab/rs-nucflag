@@ -432,7 +432,8 @@ pub(crate) fn classify_peaks(
                 .column("cov_stdev")?
                 .median_reduce()?
                 .value()
-                .try_extract()?,
+                .try_extract()
+                .unwrap_or_default(),
         }
     };
     /*

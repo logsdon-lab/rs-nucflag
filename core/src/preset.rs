@@ -45,7 +45,9 @@ impl From<Preset> for Config {
                     ..Default::default()
                 },
                 indel: IndelConfig {
-                    rolling_mean_window: Some(31),
+                    rolling_mean_window: None,
+                    min_ins_size: 500,
+                    min_del_size: 500,
                     ..Default::default()
                 },
                 minimum_size: Some(MinimumSizeConfig {
