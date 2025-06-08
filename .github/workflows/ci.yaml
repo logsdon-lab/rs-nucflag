@@ -34,7 +34,6 @@ jobs:
           command: test
           args: --all-features -p nucflag
 
-
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
