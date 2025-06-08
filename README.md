@@ -1,4 +1,6 @@
 # `rs_nucflag`
+[![CI](https://github.com/koisland/rs-nucflag/actions/workflows/ci.yaml/badge.svg)](https://github.com/koisland/rs-nucflag/actions/workflows/ci.yaml)
+
 Library to call misassemblies in genome assemblies from long-read alignments.
 
 ## Getting started
