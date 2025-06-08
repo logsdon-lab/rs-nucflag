@@ -165,7 +165,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             verbose: true,
-            bp_merge: 1,
+            bp_merge: 5_000,
             bp_wg_window: 10_000_000,
         }
     }
@@ -243,7 +243,7 @@ pub struct IndelConfig {
 impl Default for IndelConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 10.0,
+            n_zscores_high: 5.0,
             ratio_indel: 0.25,
             min_ins_size: 2,
             min_del_size: 2,

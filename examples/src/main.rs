@@ -27,7 +27,7 @@ fn cli_fasta() -> Result<(), Box<dyn Error>> {
 
     let bam = args.get(1).expect("No bamfile provided.");
     let fasta = args.get(2);
-    let bed = args.get(3);
+    let bed = args.get(3).unwrap();
     let config = args.get(4);
     let threads = args
         .get(5)
@@ -44,7 +44,8 @@ fn cli_fasta() -> Result<(), Box<dyn Error>> {
             end.try_into().unwrap(),
             name.to_owned(),
         )
-    })?;
+    })
+    .unwrap();
 
     // Parallelize by contig.
     let all_regions: Vec<NucFlagResult> = ctg_itvs

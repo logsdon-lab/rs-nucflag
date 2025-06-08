@@ -1,8 +1,6 @@
 use eyre::bail;
 use polars::prelude::*;
 
-// Polars port of https://github.com/swizard0/smoothed_z_score/blob/master/src/lib.rs
-// Remove influence parameter.
 pub fn find_peaks(
     df_pileup: DataFrame,
     n_zscore_low: f32,
@@ -78,20 +76,15 @@ mod test {
     fn test_find_peaks() {
         let df = df!(
             "pos" => [0, 1, 2, 3, 4],
-            "first" => [15, 60, 15, 0, 15],
+            "first" => [30, 60, 30, 0, 30],
         )
         .unwrap();
 
-        let df_peaks = find_peaks(df, 3.4, 3.4).unwrap().collect().unwrap();
+        let df_peaks = find_peaks(df, 1.5, 1.5).unwrap().collect().unwrap();
         let peaks = df_peaks.column("first_peak").unwrap();
         assert_eq!(
             vec!["null", "high", "null", "low", "null"],
             peaks.str().unwrap().iter().flatten().collect::<Vec<&str>>()
         );
-    }
-
-    #[test]
-    fn test_find_peaks_filter_perc() {
-        todo!()
     }
 }

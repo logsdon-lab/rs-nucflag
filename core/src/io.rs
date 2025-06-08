@@ -51,32 +51,37 @@ pub fn write_itvs<'a, T: Debug + Clone + 'a>(
 /// # Examples
 /// BED3 record.
 /// ```
+/// use nucflag::io::read_bed;
+/// use coitrees::Interval;
+///
 /// let records = read_bed(
-///     "test.bed",
-///     |name: &str, start: u64, stop: u64, other_cols: &str| Interval::new(start, stop, None)
-/// )
+///     "core/test/standard/region.bed",
+///     |name: &str, start: u64, stop: u64, other_cols: &str| Interval::new(start as i32, stop as i32, None::<&str>)
+/// );
 /// ```
 /// BED4 record
 /// ```
+/// use nucflag::io::read_bed;
+/// use coitrees::Interval;
+///
 /// let records = read_bed(
-///     "test.bed",
-///     |name: &str, start: u64, stop: u64, other_cols: &str| Interval::new(start, stop, Some(other_cols.to_owned()))
-/// )
+///     "core/test/standard/region.bed",
+///     |name: &str, start: u64, stop: u64, other_cols: &str| Interval::new(start as i32, stop as i32, Some(other_cols.to_owned()))
+/// );
 /// ```
 pub fn read_bed<T: Clone + Debug>(
-    bed: Option<impl AsRef<Path>>,
+    bed: impl AsRef<Path>,
     intervals_fn: impl Fn(&str, u64, u64, &str) -> Interval<T>,
-) -> eyre::Result<Vec<Interval<T>>> {
+) -> Option<Vec<Interval<T>>> {
     let mut intervals = Vec::new();
-
-    let Some(bed) = bed else {
-        return Ok(intervals);
-    };
-    let bed_fh = File::open(bed)?;
+    let bed_fh = File::open(bed).ok()?;
     let bed_reader = BufReader::new(bed_fh);
 
     for line in bed_reader.lines() {
-        let line = line?;
+        let Ok(line) = line else {
+            log::error!("Invalid line: {line:?}");
+            continue;
+        };
         let (name, start, stop, other_cols) =
             if let Some((name, start, stop, other_cols)) = line.splitn(4, '\t').collect_tuple() {
                 (name, start, stop, other_cols)
@@ -86,11 +91,14 @@ pub fn read_bed<T: Clone + Debug>(
                 log::error!("Invalid line: {line}");
                 continue;
             };
-        let (first, last) = (start.parse::<u64>()?, stop.parse::<u64>()?);
+        let (Ok(first), Ok(last)) = (start.parse::<u64>(), stop.parse::<u64>()) else {
+            log::error!("Cannot parse {start} or {stop} for {line}");
+            continue;
+        };
 
         intervals.push(intervals_fn(name, first, last, other_cols))
     }
-    Ok(intervals)
+    Some(intervals)
 }
 
 pub fn read_cfg(path: Option<impl AsRef<Path>>, preset: Option<&str>) -> eyre::Result<Config> {

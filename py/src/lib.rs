@@ -72,40 +72,44 @@ pub(crate) fn get_aln_intervals(
     bed: Option<&str>,
     bp_wg_window: usize,
 ) -> Result<Vec<Interval<String>>, PyErr> {
-    Ok(if bed.is_none() {
-        // If no intervals, apply to whole genome based on header.
-        get_whole_genome_intervals(aln, fasta, bp_wg_window)
-            .map_err(|err| PyValueError::new_err(err.to_string()))?
-    } else {
-        read_bed(bed, |name, st, end, _| {
+    if let Some(bed) = bed {
+        Ok(read_bed(bed, |name, st, end, _| {
             Interval::new(st as i32, end as i32, name.to_owned())
         })
-        .map_err(|err| PyValueError::new_err(err.to_string()))?
-    })
+        .ok_or_else(|| PyValueError::new_err(format!("Unable to read intervals from {bed}")))?)
+    } else {
+        Ok(get_whole_genome_intervals(aln, fasta, bp_wg_window)
+            .map_err(|err| PyValueError::new_err(err.to_string()))?)
+    }
 }
 
 pub(crate) fn get_ignored_intervals(
     ignore_bed: Option<&str>,
 ) -> Result<HashMap<String, COITree<String, usize>>, PyErr> {
-    Ok(read_bed(ignore_bed, |name, start, stop, _| {
-        Interval::new(start as i32, stop as i32, name.to_owned())
-    })
-    .map_err(|err| PyValueError::new_err(err.to_string()))?
-    .into_iter()
-    .fold(
-        HashMap::new(),
-        |mut acc: HashMap<String, Vec<Interval<String>>>, x| {
-            if acc.contains_key(&x.metadata) {
-                acc.get_mut(&x.metadata).unwrap().push(x);
-            } else {
-                acc.entry(x.metadata.clone()).or_insert(vec![x]);
-            }
-            acc
-        },
-    )
-    .into_iter()
-    .map(|(rgn, itvs)| (rgn, COITree::new(&itvs)))
-    .collect())
+    if let Some(intervals) = ignore_bed.and_then(|bed| {
+        read_bed(bed, |name, start, stop, _| {
+            Interval::new(start as i32, stop as i32, name.to_owned())
+        })
+    }) {
+        Ok(intervals
+            .into_iter()
+            .fold(
+                HashMap::new(),
+                |mut acc: HashMap<String, Vec<Interval<String>>>, x| {
+                    if acc.contains_key(&x.metadata) {
+                        acc.get_mut(&x.metadata).unwrap().push(x);
+                    } else {
+                        acc.entry(x.metadata.clone()).or_insert(vec![x]);
+                    }
+                    acc
+                },
+            )
+            .into_iter()
+            .map(|(rgn, itvs)| (rgn, COITree::new(&itvs)))
+            .collect())
+    } else {
+        Ok(HashMap::default())
+    }
 }
 
 /// Get interval regions from an alignment file or bed file.

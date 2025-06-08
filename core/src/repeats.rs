@@ -1,5 +1,5 @@
 use core::str;
-use std::{fmt::Display, str::FromStr};
+use std::{cmp::Ordering, fmt::Display, str::FromStr};
 
 use eyre::bail;
 use itertools::Itertools;
@@ -41,9 +41,10 @@ pub struct RepeatSummary<'a> {
 ///
 /// # Example
 /// ```
-/// let seq = "TTAGCAGCAGCCCG"
-/// let summary = detect_largest_repeat(seq)
+/// use nucflag::repeats::detect_largest_repeat;
 ///
+/// let seq = "TTAGCAGCAGCCCG";
+/// let summary = detect_largest_repeat(seq);
 /// ```
 pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary> {
     if seq.is_empty() {
@@ -72,13 +73,20 @@ pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary> {
             total_length += largest_sfx_length;
             break;
         };
-        // Some overlap if diff between two adjacent positions less than the largest sfx length.
         let diff = *next_pos - pos;
-        if diff < largest_sfx_length {
-            total_length += diff
-        } else {
-            total_length += largest_sfx_length
+        match diff.cmp(&largest_sfx_length) {
+            // Some overlap if diff between two adjacent positions less than the largest sfx length.
+            Ordering::Less => total_length += diff,
+            Ordering::Equal => total_length += largest_sfx_length,
+            // But if diff is larger, indicates suffixes are not adjacent and should be ignored in total length calculation.
+            Ordering::Greater => {
+                continue;
+            }
         }
+    }
+    // Not a repeat. Single unit.
+    if total_length == largest_sfx_length {
+        return None;
     }
 
     let prop = total_length as f32 / seq.len() as f32;
@@ -160,6 +168,29 @@ mod test {
             },),
             res
         );
+    }
+
+    #[test]
+    fn test_ignore_simple_repeat_split() {
+        let seq = "CCACTTGCAGAC";
+        let res = detect_largest_repeat(seq);
+        assert_eq!(res, None)
+    }
+
+    #[test]
+    fn test_ignore_simple_repeat_split_one_adj() {
+        let seq = "CCACATTGCAGAC";
+        let res = detect_largest_repeat(seq);
+        assert_eq!(
+            Some(RepeatSummary {
+                repeat: Repeat::SimpleRepeat,
+                sequence: "CA",
+                prop: 0.30769232,
+                // 4 out of 13 characters.
+                original_sequence: "CCACATTGCAGAC"
+            }),
+            res,
+        )
     }
 
     #[test]

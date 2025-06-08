@@ -208,7 +208,7 @@ mod tests {
 
         let merged_itvs = merge_intervals(
             itvs.clone().into_iter(),
-            0,
+            1,
             |a, b| (a.metadata % 2 == 0) & (b.metadata % 2 == 0),
             reduce_to_a,
             noop,
