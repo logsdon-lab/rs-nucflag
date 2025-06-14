@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 coitrees = "0.4.0"
-nucflag = { path = "../core"}
+rs-nucflag = { path = "../core"}
 polars = "0.46.0"
 rayon = "1.10.0"

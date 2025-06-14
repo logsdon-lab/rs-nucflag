@@ -1,13 +1,13 @@
 use coitrees::{COITree, Interval, IntervalTree};
 use core::str;
-use nucflag::{
+use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3_polars::PyDataFrame;
+use rayon::{prelude::*, ThreadPoolBuilder};
+use rs_nucflag::{
     io::{read_bed, read_cfg},
     nucflag,
     pileup::AlignmentFile,
 };
-use pyo3::{exceptions::PyValueError, prelude::*};
-use pyo3_polars::PyDataFrame;
-use rayon::{prelude::*, ThreadPoolBuilder};
 use std::collections::HashMap;
 
 #[pyclass]

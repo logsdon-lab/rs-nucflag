@@ -604,9 +604,9 @@ name = "example_cli"
 version = "0.1.0"
 dependencies = [
  "coitrees",
- "nucflag",
  "polars",
  "rayon",
+ "rs-nucflag",
 ]
 
 [[package]]
@@ -1324,24 +1324,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nucflag"
-version = "0.1.0"
-dependencies = [
- "clap",
- "coitrees",
- "eyre",
- "itertools",
- "log",
- "noodles 0.96.0",
- "polars",
- "rayon",
- "rs-moddotplot",
- "serde",
- "suffix",
- "toml",
-]
-
-[[package]]
 name = "num-conv"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2024,11 +2006,11 @@ dependencies = [
  "itertools",
  "log",
  "noodles 0.91.0",
- "nucflag",
  "polars",
  "pyo3",
  "pyo3-polars",
  "rayon",
+ "rs-nucflag",
  "simple_logger",
 ]
 
@@ -2260,6 +2242,24 @@ dependencies = [
  "indexmap",
  "noodles 0.96.0",
  "rayon",
+]
+
+[[package]]
+name = "rs-nucflag"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "coitrees",
+ "eyre",
+ "itertools",
+ "log",
+ "noodles 0.96.0",
+ "polars",
+ "rayon",
+ "rs-moddotplot",
+ "serde",
+ "suffix",
+ "toml",
 ]
 
 [[package]]

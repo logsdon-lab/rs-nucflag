@@ -1,13 +1,13 @@
 use std::error::Error;
 
 use coitrees::Interval;
-use nucflag::{
+use rayon::{prelude::*, ThreadPoolBuilder};
+use rs_nucflag::{
     classify::NucFlagResult,
     config::Config,
     io::{read_bed, read_cfg, write_tsv},
     nucflag,
 };
-use rayon::{prelude::*, ThreadPoolBuilder};
 
 /*
 cargo run --release --manifest-path examples/Cargo.toml -- \
