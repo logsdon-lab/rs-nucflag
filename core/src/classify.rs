@@ -173,6 +173,7 @@ pub(crate) fn merge_misassemblies(
             let seq = str::from_utf8(record.sequence().as_ref())?;
             detect_largest_repeat(seq)
                 .and_then(|rpt| {
+                    log::debug!("Detected repeat at {ctg}:{st}-{end}: {rpt:?}");
                     // If any number of N's is scaffold.
                     if rpt.repeat == Repeat::Scaffold {
                         Some(MisassemblyType::Repeat(rpt.repeat))
@@ -227,12 +228,6 @@ pub(crate) fn merge_misassemblies(
                 mean_cov += *cov;
                 num_elems += 1;
             }
-            // Remove misassemblies less than threshold size.
-            let min_size = thr_minimum_sizes[&agg_status];
-            let length = (agg_end - agg_st) as u64;
-            if length < min_size {
-                agg_status = MisassemblyType::Null;
-            }
             mean_cov /= num_elems;
 
             // Change in coverage is greater than 1 stdev. Indicates that transition and should be ignored.
@@ -271,8 +266,24 @@ pub(crate) fn merge_misassemblies(
         }
     }
 
-    // Merge again over good regions
-    // Good, indel, and repeat intervals should never overwrite misassembled intervals.
+    // Remove intervals not within minimum sizes after merging.
+    let minmax_reclassified_itvs_all = merge_intervals(
+        minmax_reclassified_itvs_all.into_iter(),
+        1,
+        |a, b| a.metadata.0 == b.metadata.0,
+        |a, b| (a.metadata.0, (a.metadata.1 + b.metadata.1) / 2),
+        |a| {
+            let mut status = a.metadata.0;
+            // Remove misassemblies less than threshold size.
+            let min_size = thr_minimum_sizes[&status];
+            let length = (a.last - a.first) as u64;
+            if length < min_size {
+                status = MisassemblyType::Null;
+            }
+            Interval::new(a.first, a.last, (status, a.metadata.1))
+        },
+    );
+
     let minmax_reclassified_itvs_all: Vec<Row> = minmax_reclassified_itvs_all
         .into_iter()
         .map(|itv| {

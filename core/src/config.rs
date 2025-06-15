@@ -119,7 +119,7 @@ impl Default for MinimumSizeConfig {
             collapse: 500,
             misjoin: 1,
             low_quality: 1,
-            false_dupe: 20_000,
+            false_dupe: 500,
             softclip: 1,
             indel: 1,
             homopolymer: 1,
@@ -283,7 +283,7 @@ pub struct RepeatConfig {
     /// Extend region checked by n bases on both ends.
     /// By default is the misassembled regions length.
     /// * Sometimes this is not enough as only 1 position long.
-    /// * Defaults to 5 bp.  
+    /// * Defaults to 5 bp.
     pub bp_extend: usize,
 }
 

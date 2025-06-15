@@ -295,7 +295,7 @@ mod test {
 
     #[test]
     fn test_pileup() {
-        let mut bam = AlignmentFile::new("test/pileup/test.bam", None::<&str>).unwrap();
+        let mut bam = AlignmentFile::new("test/pileup/input/test.bam", None::<&str>).unwrap();
         let itv = coitrees::Interval::new(
             9667238,
             9667240,

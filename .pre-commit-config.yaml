@@ -40,3 +40,4 @@ repos:
         pass_filenames: false
         types: [file, rust]
         language: system
+exclude: ".*\\.png"

@@ -89,8 +89,8 @@ fn nucflag_grp(
 /// Detect misasemblies from alignment read coverage using per-base read coverage.
 ///
 /// # Arguments
-/// * `aln`: Input BAM/CRAM file path. Should be indexed.  
-/// * `fasta`: Input BAM file path. Required with CRAM. Also used for region binning.  
+/// * `aln`: Input BAM/CRAM file path. Should be indexed.
+/// * `fasta`: Input BAM file path. Required with CRAM. Also used for region binning.
 /// * `itv`: Interval to check.
 /// * `ignore_itvs`: Intervals to ignore. NOTE: Interval's metadata is not checked.
 /// * `cfg`: Peak-calling configuration. See [`Preset`] for configuration based on sequencing data type.
@@ -120,7 +120,7 @@ pub fn nucflag(
         } else {
             vec![df_raw_pileup
                 .lazy()
-                .with_column(lit(0).alias("bin"))
+                .with_column(lit(0).cast(DataType::UInt64).alias("bin"))
                 .collect()?]
         };
 

@@ -7,6 +7,10 @@ edition = "2021"
 name = "rs_nucflag"
 path = "src/lib.rs"
 
+[[test]]
+name = "examples"
+path = "test/test_examples.rs"
+
 [dependencies]
 clap = { version = "4.5.29", features = ["derive"] }
 coitrees = "0.4.0"

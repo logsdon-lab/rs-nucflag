@@ -167,9 +167,9 @@ fn run_nucflag_itv(
 }
 
 #[pyfunction]
-#[pyo3(signature = (preset, cfg = None))]
-fn print_config_from_preset(preset: &str, cfg: Option<&str>) -> PyResult<()> {
-    let cfg = read_cfg(cfg, Some(preset)).map_err(|err| PyValueError::new_err(err.to_string()))?;
+#[pyo3(signature = (preset = None, cfg = None))]
+fn print_config_from_preset(preset: Option<&str>, cfg: Option<&str>) -> PyResult<()> {
+    let cfg = read_cfg(cfg, preset).map_err(|err| PyValueError::new_err(err.to_string()))?;
     if cfg.general.verbose {
         simple_logger::init_with_level(log::Level::Debug).expect("Cannot initialize logger.");
     }
