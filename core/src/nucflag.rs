@@ -97,13 +97,17 @@ fn nucflag_grp(
 ///
 /// # Returns
 /// * [`NucFlagResult`]
-pub fn nucflag(
-    aln: impl AsRef<Path>,
-    fasta: Option<impl AsRef<Path> + Clone + Debug>,
+pub fn nucflag<A, F>(
+    aln: A,
+    fasta: Option<F>,
     itv: &Interval<String>,
     ignore_itvs: Option<&COITree<String, usize>>,
     cfg: Config,
-) -> eyre::Result<NucFlagResult> {
+) -> eyre::Result<NucFlagResult>
+where
+    A: AsRef<Path> + Debug,
+    F: AsRef<Path> + Clone + Debug,
+{
     let ctg = itv.metadata.clone();
     let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
 

@@ -62,10 +62,7 @@ fn run_nucflag_itv(
     }
 
     // Set rayon threadpool
-    ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build_global()
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    _ = ThreadPoolBuilder::new().num_threads(threads).build_global();
 
     let all_ignore_itvs: HashMap<String, COITree<String, usize>> =
         get_ignored_intervals(ignore_bed)?;
@@ -136,10 +133,7 @@ fn run_nucflag(
     log::info!("Using config:\n{cfg:#?}");
 
     // Set rayon threadpool
-    ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build_global()
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    _ = ThreadPoolBuilder::new().num_threads(threads).build_global();
 
     let ctg_itvs: Vec<Interval<String>> =
         get_aln_intervals(aln, fasta, bed, cfg.general.bp_wg_window)?;

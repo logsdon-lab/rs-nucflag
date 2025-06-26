@@ -25,7 +25,8 @@ macro_rules! get_median_cov {
             .column("cov")?
             .median_reduce()?
             .value()
-            .try_extract::<u32>()?
+            .try_extract::<u32>()
+            .unwrap_or_default()
     };
 }
 
@@ -68,6 +69,8 @@ pub fn group_pileup_by_ani(
             .collect();
 
         let mut final_itvs: Vec<Interval<u64>> = vec![];
+        let lf_cov = df.select(["pos", "cov"])?.lazy();
+
         while let Some(mut itv) = itvs.pop_front() {
             let Some(mut next_itv) = itvs.pop_front() else {
                 final_itvs.push(itv);
@@ -76,11 +79,10 @@ pub fn group_pileup_by_ani(
             // Ensure no small gaps between.
             let dst_between = next_itv.first - itv.last;
             if dst_between <= min_grp_size.try_into()? {
-                let lf_cov = df.select(["pos", "cov"])?.lazy();
-
                 let cov_left = get_median_cov!(lf_cov.clone(), itv.first, itv.last) as i32;
                 let cov_between = get_median_cov!(lf_cov.clone(), itv.last, next_itv.first) as i32;
-                let cov_right = get_median_cov!(lf_cov, next_itv.first, next_itv.last) as i32;
+                let cov_right =
+                    get_median_cov!(lf_cov.clone(), next_itv.first, next_itv.last) as i32;
 
                 let cov_diff_left = cov_between.abs_diff(cov_left);
                 let cov_diff_right = cov_between.abs_diff(cov_right);

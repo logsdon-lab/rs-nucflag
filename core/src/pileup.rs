@@ -1,4 +1,5 @@
 use coitrees::{GenericInterval, Interval};
+use eyre::Context;
 use itertools::Itertools;
 use noodles::{
     bam, bgzf,
@@ -11,7 +12,7 @@ use noodles::{
     },
 };
 use polars::prelude::*;
-use std::{fs::File, path::Path};
+use std::{fmt::Debug, fs::File, path::Path};
 
 use crate::config::Config;
 
@@ -151,25 +152,34 @@ macro_rules! pileup {
 }
 
 impl AlignmentFile {
-    pub fn new(aln: impl AsRef<Path>, fasta: Option<impl AsRef<Path>>) -> eyre::Result<Self> {
+    pub fn new<A, F>(aln: A, fasta: Option<F>) -> eyre::Result<Self>
+    where
+        A: AsRef<Path> + Debug,
+        F: AsRef<Path> + Debug,
+    {
         // Try to build cram.
         let is_cram = cram::io::indexed_reader::Builder::default()
             .build_from_path(aln.as_ref())
             .ok();
         // Then check if fasta and cram.
         if let Some(fasta) = is_cram.and(fasta) {
-            let fasta_fh = fasta::io::indexed_reader::Builder::default().build_from_path(fasta)?;
+            let fasta_fh = fasta::io::indexed_reader::Builder::default()
+                .build_from_path(&fasta)
+                .with_context(|| format!("Cannot read indexed fasta file ({fasta:?})"))?;
             let reference_sequence_repository =
                 fasta::Repository::new(repository::adapters::IndexedReader::new(fasta_fh));
             Ok(Self::Cram(
                 cram::io::indexed_reader::Builder::default()
                     .set_reference_sequence_repository(reference_sequence_repository)
-                    .build_from_path(aln)?,
+                    .build_from_path(&aln)
+                    .with_context(|| format!("Cannot read indexed CRAM file ({aln:?})"))?,
             ))
         } else {
             // Otherwise, assume bam.
             Ok(Self::Bam(
-                bam::io::indexed_reader::Builder::default().build_from_path(&aln)?,
+                bam::io::indexed_reader::Builder::default()
+                    .build_from_path(&aln)
+                    .with_context(|| format!("Cannot read indexed BAM file ({aln:?})"))?,
             ))
         }
     }
