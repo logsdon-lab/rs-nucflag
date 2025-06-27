@@ -12,8 +12,8 @@ pub enum Repeat {
     Scaffold,
     /// Homopolymers with continuous run of some characters. ex. `AAAAA`
     Homopolymer,
-    /// Simple repeat of some size. ex. `AGCAGCAGC`
-    SimpleRepeat,
+    /// Repeat of some size. ex. `AGCAGCAGC`
+    Repeat,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,7 +98,7 @@ pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary> {
     let repeat_type = match repeat.chars().sorted().dedup().count() {
         0 => unreachable!(),
         1 => Repeat::Homopolymer,
-        2.. => Repeat::SimpleRepeat,
+        2.. => Repeat::Repeat,
     };
 
     Some(RepeatSummary {
@@ -120,7 +120,7 @@ impl FromStr for Repeat {
         Ok(match s {
             "scaffold" => Repeat::Scaffold,
             "homopolymer" => Repeat::Homopolymer,
-            "simple_repeat" => Repeat::SimpleRepeat,
+            "simple_repeat" => Repeat::Repeat,
             _ => bail!("Invalid repeat type, {s}."),
         })
     }
@@ -131,7 +131,7 @@ impl Display for Repeat {
         match self {
             Repeat::Scaffold => write!(f, "scaffold"),
             Repeat::Homopolymer => write!(f, "homopolymer"),
-            Repeat::SimpleRepeat => write!(f, "simple_repeat"),
+            Repeat::Repeat => write!(f, "simple_repeat"),
         }
     }
 }
@@ -146,7 +146,7 @@ mod test {
         let res = detect_largest_repeat(seq);
         assert_eq!(
             Some(RepeatSummary {
-                repeat: Repeat::SimpleRepeat,
+                repeat: Repeat::Repeat,
                 sequence: "AGCAGC",
                 prop: 0.64285713,
                 original_sequence: "TTAGCAGCAGCCCG",
@@ -161,7 +161,7 @@ mod test {
         let res = detect_largest_repeat(seq);
         assert_eq!(
             Some(RepeatSummary {
-                repeat: Repeat::SimpleRepeat,
+                repeat: Repeat::Repeat,
                 sequence: "ATATATAT",
                 prop: 0.90909094,
                 original_sequence: "ATATATATATC",
@@ -183,7 +183,7 @@ mod test {
         let res = detect_largest_repeat(seq);
         assert_eq!(
             Some(RepeatSummary {
-                repeat: Repeat::SimpleRepeat,
+                repeat: Repeat::Repeat,
                 sequence: "CA",
                 prop: 0.30769232,
                 // 4 out of 13 characters.

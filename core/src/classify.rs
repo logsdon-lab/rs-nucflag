@@ -105,7 +105,7 @@ pub(crate) fn merge_misassemblies(
     let thr_minimum_sizes: HashMap<MisassemblyType, u64> = (&cfg_min_size).try_into()?;
 
     let mut fasta_reader = if let Some(fasta) = fasta {
-        log::info!("Reading indexed {fasta:?} for {ctg} to detect further classify misassemblies by repeat.");
+        log::info!("Reading indexed {fasta:?} for {ctg} to classify misassemblies by repeat.");
         let mut fai = fasta.as_ref().as_os_str().to_owned();
         fai.push(".fai");
         let fai =
@@ -115,6 +115,12 @@ pub(crate) fn merge_misassemblies(
     } else {
         None
     };
+
+    // let itvs = fasta_reader.as_ref().and_then(|fh|{
+    //     let rec = fh.index().as_ref().iter().find(|rec| rec.name() == ctg)?;
+    //     let length = rec.length();
+    //     Some(())
+    // });
 
     // Convert good intervals overlapping misassembly types.
     // Detect repeats.
@@ -231,7 +237,6 @@ pub(crate) fn merge_misassemblies(
             mean_cov /= num_elems;
 
             // Change in coverage is greater than 1 stdev. Indicates that transition and should be ignored.
-            // TODO: Might also apply to false dupe and misjoin. Check.
             let bin_stats = &bin_stats[&bin];
             if agg_status == MisassemblyType::Collapse {
                 // Get runs of same signed changes.
@@ -252,6 +257,9 @@ pub(crate) fn merge_misassemblies(
                     agg_status = MisassemblyType::Null;
                 }
             }
+            // else if agg_status == MisassemblyType::Misjoin || agg_status == MisassemblyType::FalseDupe {
+
+            // }
             minmax_reclassified_itvs_all.push(Interval::new(
                 agg_st,
                 agg_end,

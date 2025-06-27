@@ -46,7 +46,7 @@ impl MisassemblyType {
             MisassemblyType::FalseDupe => "0,0,255",
             MisassemblyType::Repeat(Repeat::Scaffold) => "128,128,128",
             MisassemblyType::Repeat(Repeat::Homopolymer) => "128,128,128",
-            MisassemblyType::Repeat(Repeat::SimpleRepeat) => "128,128,128",
+            MisassemblyType::Repeat(Repeat::Repeat) => "128,128,128",
             MisassemblyType::Null => "0,0,0",
         }
     }
@@ -63,7 +63,7 @@ impl From<MisassemblyType> for &'static str {
             MisassemblyType::FalseDupe => "false_dupe",
             MisassemblyType::Repeat(Repeat::Scaffold) => "scaffold",
             MisassemblyType::Repeat(Repeat::Homopolymer) => "homopolymer",
-            MisassemblyType::Repeat(Repeat::SimpleRepeat) => "simple_repeat",
+            MisassemblyType::Repeat(Repeat::Repeat) => "simple_repeat",
             MisassemblyType::Null => "null",
         }
     }
@@ -82,7 +82,7 @@ impl FromStr for MisassemblyType {
             "false_dupe" => MisassemblyType::FalseDupe,
             "scaffold" => MisassemblyType::Repeat(Repeat::Scaffold),
             "homopolymer" => MisassemblyType::Repeat(Repeat::Homopolymer),
-            "simple_repeat" => MisassemblyType::Repeat(Repeat::SimpleRepeat),
+            "simple_repeat" => MisassemblyType::Repeat(Repeat::Repeat),
             _ => MisassemblyType::Null,
         })
     }
@@ -125,10 +125,10 @@ impl Ord for MisassemblyType {
             // Never merge repeats
             (_, MisassemblyType::Repeat(Repeat::Scaffold)) => Ordering::Less,
             (_, MisassemblyType::Repeat(Repeat::Homopolymer)) => Ordering::Less,
-            (_, MisassemblyType::Repeat(Repeat::SimpleRepeat)) => Ordering::Less,
+            (_, MisassemblyType::Repeat(Repeat::Repeat)) => Ordering::Less,
             (MisassemblyType::Repeat(Repeat::Scaffold), _) => Ordering::Less,
             (MisassemblyType::Repeat(Repeat::Homopolymer), _) => Ordering::Less,
-            (MisassemblyType::Repeat(Repeat::SimpleRepeat), _) => Ordering::Less,
+            (MisassemblyType::Repeat(Repeat::Repeat), _) => Ordering::Less,
             // Null/good always less
             (MisassemblyType::Null, _) => Ordering::Less,
         }

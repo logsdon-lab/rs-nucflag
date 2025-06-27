@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use log::Level;
 use serde::Deserialize;
 
 use crate::{misassembly::MisassemblyType, repeats::Repeat};
@@ -101,7 +102,7 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<MisassemblyType, u64> {
                 cfg.homopolymer.try_into()?,
             ),
             (
-                MisassemblyType::Repeat(Repeat::SimpleRepeat),
+                MisassemblyType::Repeat(Repeat::Repeat),
                 cfg.simple_repeat.try_into()?,
             ),
             (
@@ -153,8 +154,8 @@ impl Default for GroupByANIConfig {
 #[derive(Deserialize, Debug, Clone)]
 /// Config for generated plots.
 pub struct GeneralConfig {
-    /// Display verbose logging.
-    pub verbose: bool,
+    /// Display log level.
+    pub log_level: Level,
     /// Number of bases to merge misassembly intervals.
     pub bp_merge: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
@@ -164,7 +165,7 @@ pub struct GeneralConfig {
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
-            verbose: true,
+            log_level: Level::Info,
             bp_merge: 5_000,
             bp_wg_window: 10_000_000,
         }
@@ -247,7 +248,7 @@ impl Default for IndelConfig {
             ratio_indel: 0.25,
             min_ins_size: 2,
             min_del_size: 2,
-            rolling_mean_window: None,
+            rolling_mean_window: Some(3),
         }
     }
 }
