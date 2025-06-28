@@ -90,6 +90,20 @@ fn test_ending_scaffold() {
 }
 
 #[test]
+fn test_ignore_low_cov_boundaries() {
+    let indir = "test/ignore_boundaries/input";
+    let expdir = "test/ignore_boundaries/expected";
+    for (case, suffix) in [("aln_1", "_ignore"), ("aln_1", "")] {
+        let aln = format!("{indir}/{case}.bam");
+        let bed = format!("{indir}/{case}.bed");
+        let cfg = format!("{indir}/{case}{suffix}.toml");
+        let expected = format!("{expdir}/{case}{suffix}.bed");
+        // check_output(&aln, &bed, Some(&fa), None, None, Some(&expected));
+        check_output(&aln, &bed, None, Some(&cfg), Some(&expected), None)
+    }
+}
+
+#[test]
 fn test_het() {
     let indir = "test/het/input";
     let expdir = "test/het/expected";

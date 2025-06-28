@@ -26,7 +26,7 @@ fn cli_fasta() -> Result<(), Box<dyn Error>> {
     );
 
     let bam = args.get(1).expect("No bamfile provided.");
-    let fasta = args.get(2);
+    let fasta = args.get(2).filter(|fasta| fasta.as_str() != "none");
     let bed = args.get(3).unwrap();
     let config = args.get(4);
     let threads = args

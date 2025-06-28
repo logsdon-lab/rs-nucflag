@@ -1,0 +1,37 @@
+[general]
+log_level = "info"
+bp_merge = 5_000
+bp_wg_window = 10_000_000
+ignore_boundaries = true
+
+[cov]
+n_zscores_low = 3.5
+n_zscores_high = 4.5
+ratio_misjoin = 0.01
+ratio_collapse = 2.0
+ratio_false_dupe = 0.5
+
+[mismatch]
+n_zscores_high = 3.5
+ratio_het = 0.2
+
+[indel]
+n_zscores_high = 5.0
+min_ins_size = 2
+min_del_size = 2
+ratio_indel = 0.25
+rolling_mean_window = 3
+
+[softclip]
+n_zscores_high = 3.5
+ratio_softclip = 0.5
+
+[group_by_ani]
+window_size = 5_000
+min_grp_size = 100_000
+min_ident = 80.0
+
+[repeat]
+check_types = ["Misjoin", "Indel", "FalseDupe"]
+ratio_repeat = 0.5
+bp_extend = 5
