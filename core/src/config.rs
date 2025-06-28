@@ -81,7 +81,7 @@ pub struct MinimumSizeConfig {
     pub softclip: usize,
     pub indel: usize,
     pub homopolymer: usize,
-    pub simple_repeat: usize,
+    pub repeat: usize,
     pub scaffold: usize,
 }
 
@@ -103,7 +103,7 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<MisassemblyType, u64> {
             ),
             (
                 MisassemblyType::Repeat(Repeat::Repeat),
-                cfg.simple_repeat.try_into()?,
+                cfg.repeat.try_into()?,
             ),
             (
                 MisassemblyType::Repeat(Repeat::Scaffold),
@@ -124,7 +124,7 @@ impl Default for MinimumSizeConfig {
             softclip: 1,
             indel: 1,
             homopolymer: 1,
-            simple_repeat: 1,
+            repeat: 1,
             scaffold: 1,
         }
     }
@@ -160,6 +160,10 @@ pub struct GeneralConfig {
     pub bp_merge: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
     pub bp_wg_window: usize,
+    /// Filter misassemblies below median coverage on contig boundaries.
+    /// * If fasta provided, defaults to boundaries of each contig.
+    /// * With no fasta, defaults to boundaries of queried region.
+    pub ignore_boundaries: bool,
 }
 
 impl Default for GeneralConfig {
@@ -168,6 +172,7 @@ impl Default for GeneralConfig {
             log_level: Level::Info,
             bp_merge: 5_000,
             bp_wg_window: 10_000_000,
+            ignore_boundaries: true,
         }
     }
 }

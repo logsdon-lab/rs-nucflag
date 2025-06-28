@@ -120,7 +120,7 @@ impl FromStr for Repeat {
         Ok(match s {
             "scaffold" => Repeat::Scaffold,
             "homopolymer" => Repeat::Homopolymer,
-            "simple_repeat" => Repeat::Repeat,
+            "repeat" => Repeat::Repeat,
             _ => bail!("Invalid repeat type, {s}."),
         })
     }
@@ -131,7 +131,7 @@ impl Display for Repeat {
         match self {
             Repeat::Scaffold => write!(f, "scaffold"),
             Repeat::Homopolymer => write!(f, "homopolymer"),
-            Repeat::Repeat => write!(f, "simple_repeat"),
+            Repeat::Repeat => write!(f, "repeat"),
         }
     }
 }
@@ -171,14 +171,14 @@ mod test {
     }
 
     #[test]
-    fn test_ignore_simple_repeat_split() {
+    fn test_ignore_repeat_split() {
         let seq = "CCACTTGCAGAC";
         let res = detect_largest_repeat(seq);
         assert_eq!(res, None)
     }
 
     #[test]
-    fn test_ignore_simple_repeat_split_one_adj() {
+    fn test_ignore_repeat_split_one_adj() {
         let seq = "CCACATTGCAGAC";
         let res = detect_largest_repeat(seq);
         assert_eq!(

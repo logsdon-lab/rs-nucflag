@@ -9,11 +9,11 @@ use crate::{
     repeats::{detect_largest_repeat, Repeat},
 };
 use coitrees::{COITree, Interval, IntervalTree};
-use eyre::Context;
+use eyre::{bail, Context};
 use itertools::{multizip, Itertools};
 use noodles::{
     core::{Position, Region},
-    fasta,
+    fasta::{self, IndexedReader},
 };
 use polars::{frame::row::Row, prelude::*};
 
@@ -47,6 +47,86 @@ fn split_at_ignored_intervals<'a>(
     }
 }
 
+fn ignore_boundary_misassemblies(
+    itvs: &mut [Interval<(MisassemblyType, u32, u64)>],
+    ctg: &str,
+    fasta: Option<IndexedReader<BufReader<File>>>,
+    bin_stats: &HashMap<u64, BinStats>,
+    default_boundary_positions: (i32, i32),
+) {
+    // Filter boundary misassemblies if below median coverage.
+    // Handles cases in telomeres classified as misjoin/false_dupe/indel/repeats just because fewer reads.
+    // * Also useful for specific regions like centromeres where we only care about the active array and don't mind misassemblies in pericentromere.
+    let (ctg_st, ctg_end) = fasta
+        .as_ref()
+        .and_then(|fh| {
+            let rec = fh.index().as_ref().iter().find(|rec| rec.name() == ctg)?;
+            Some((0i32, (rec.length() + 1) as i32))
+        })
+        .unwrap_or(default_boundary_positions);
+
+    // Keep going if below median in both directions.
+    // With median of 8x
+    // coverage  0 1 2 8  8  8 3 0
+    // status  | x x x o ... o x x |
+    // Each x is replace with a Null classification.
+    let mut idx_st = 0;
+    let mut idx_end = itvs.len() - 1;
+
+    // Check for contig/queried region start or end.
+    if itvs
+        .first()
+        .map(|itv| itv.first == ctg_st)
+        .unwrap_or_default()
+    {
+        while let Some(itv) = itvs.get_mut(idx_st).filter(|itv| {
+            let bin = &bin_stats[&itv.metadata.2];
+            itv.metadata.1 < bin.median as u32
+        }) {
+            let og_mdata = itv.metadata;
+            log::debug!("Filtered out {:?}: {ctg}:{}-{} at contig start with coverage below bin median {:?}", og_mdata.0, itv.first, itv.last, &bin_stats[&og_mdata.2]);
+            std::mem::swap(
+                itv,
+                &mut Interval::new(
+                    itv.first,
+                    itv.last,
+                    (MisassemblyType::Null, og_mdata.1, og_mdata.2),
+                ),
+            );
+            idx_st += 1
+        }
+    }
+
+    if itvs
+        .last()
+        .map(|itv| itv.last == ctg_end)
+        .unwrap_or_default()
+    {
+        while let Some(itv) = itvs.get_mut(idx_end).filter(|itv| {
+            let bin = &bin_stats[&itv.metadata.2];
+            itv.metadata.1 < bin.median as u32
+        }) {
+            let og_mdata = itv.metadata;
+            log::debug!(
+                "Filtered out {:?}: {ctg}:{}-{} on contig end with coverage below bin median {:?}",
+                og_mdata.0,
+                itv.first,
+                itv.last,
+                &bin_stats[&og_mdata.2]
+            );
+            std::mem::swap(
+                itv,
+                &mut Interval::new(
+                    itv.first,
+                    itv.last,
+                    (MisassemblyType::Null, og_mdata.1, og_mdata.2),
+                ),
+            );
+            idx_end -= 1
+        }
+    }
+}
+
 pub(crate) fn merge_misassemblies(
     df_itvs: DataFrame,
     bin_stats: HashMap<u64, BinStats>,
@@ -65,6 +145,13 @@ pub(crate) fn merge_misassemblies(
         df_itvs.column("bin")?.u64()?.iter().flatten(),
     ))
     .collect();
+
+    let (Some(all_st), Some(all_end)) = (
+        itvs_all.first().map(|itv| itv.0 as i32),
+        itvs_all.last().map(|itv| itv.1 as i32),
+    ) else {
+        bail!("No intervals for {ctg}. Something is wrong.");
+    };
 
     let df_misasm_itvs = df_itvs
         .clone()
@@ -116,12 +203,6 @@ pub(crate) fn merge_misassemblies(
         None
     };
 
-    // let itvs = fasta_reader.as_ref().and_then(|fh|{
-    //     let rec = fh.index().as_ref().iter().find(|rec| rec.name() == ctg)?;
-    //     let length = rec.length();
-    //     Some(())
-    // });
-
     // Convert good intervals overlapping misassembly types.
     // Detect repeats.
     // Remove ignored intervals.
@@ -152,7 +233,7 @@ pub(crate) fn merge_misassemblies(
             .filter(|ovl_mtype| ovl_mtype.gt(&mtype))
             .unwrap_or_else(|| MisassemblyType::from_str(status).unwrap());
 
-        // Detect scaffold/homopolymer/simple repeat and replace type.
+        // Detect scaffold/homopolymer/repeat and replace type.
         let status = if let (Some(reader), Some(cfg_rpt)) = (
             fasta_reader.as_mut(),
             // Must have repeat config and the current status must be in types to check.
@@ -210,12 +291,26 @@ pub(crate) fn merge_misassemblies(
         // Otherwise, add misassembly.
         reclassified_itvs_all.push(Interval::new(st, end, (status, cov, bin)));
     }
+
+    // Keep sorted.
+    reclassified_itvs_all.sort_by(|a, b| a.first.cmp(&b.first));
+
+    // Ignore boundary misassemblies.
+    if cfg.general.ignore_boundaries {
+        ignore_boundary_misassemblies(
+            &mut reclassified_itvs_all,
+            ctg,
+            fasta_reader,
+            &bin_stats,
+            (all_st, all_end),
+        );
+    }
+
     // Get minimum and maximum positions of sorted, grouped intervals.
     // Filter collapses based on calculate derivative within misassembled regions
     let mut minmax_reclassified_itvs_all = vec![];
     for ((is_mergeable, bin), group_elements) in &reclassified_itvs_all
         .into_iter()
-        .sorted_by(|a, b| a.first.cmp(&b.first))
         .chunk_by(|a| (a.metadata.0.is_mergeable(), a.metadata.2))
     {
         if is_mergeable {
@@ -237,6 +332,11 @@ pub(crate) fn merge_misassemblies(
             mean_cov /= num_elems;
 
             // Change in coverage is greater than 1 stdev. Indicates that transition and should be ignored.
+            //        v
+            // 000000011111
+            //    ____
+            //  _/    \____
+            // /           \
             let bin_stats = &bin_stats[&bin];
             if agg_status == MisassemblyType::Collapse {
                 // Get runs of same signed changes.
@@ -248,18 +348,15 @@ pub(crate) fn merge_misassemblies(
                     .map(|(_, run)| run.sum::<f32>())
                     .minmax();
                 let stdev = bin_stats.stdev.abs();
-                // eprintln!("Collapse: {ctg}:{agg_st}-{agg_end} with coverage changes ({min_max_change:?}) less than 1 stdev in bin {bin_stats:?}");
                 if let Some((min, max)) = min_max_change
                     .into_option()
                     .filter(|(min, max)| (min.abs() < stdev.abs()) || (max.abs()) < stdev.abs())
                 {
-                    log::debug!("Filtered out collapse: {ctg}:{agg_st}-{agg_end} with coverage changes ({min},{max}) less than 1 stdev in bin {bin_stats:?}");
+                    log::debug!("Filtered out {agg_status:?}: {ctg}:{agg_st}-{agg_end} with coverage changes ({min},{max}) less than 1 stdev in bin {bin_stats:?}");
                     agg_status = MisassemblyType::Null;
                 }
             }
-            // else if agg_status == MisassemblyType::Misjoin || agg_status == MisassemblyType::FalseDupe {
 
-            // }
             minmax_reclassified_itvs_all.push(Interval::new(
                 agg_st,
                 agg_end,

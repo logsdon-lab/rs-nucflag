@@ -47,6 +47,7 @@ pub fn group_pileup_by_ani(
     let region = Region::new(itv.metadata.clone(), position);
     let seq = reader_fasta.query(&region)?;
 
+    // TODO: Something here is non-deterministic.
     let itv_idents: COITree<u64, usize> = {
         log::info!("Calculating self-identity for {ctg}:{st}-{end} to bin region.");
         let bed_ident = compute_seq_self_identity(

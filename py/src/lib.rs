@@ -57,7 +57,8 @@ fn run_nucflag_itv(
 ) -> PyResult<PyNucFlagResult> {
     let cfg = read_cfg(cfg, preset).map_err(|err| PyValueError::new_err(err.to_string()))?;
     let itv = Interval::new(itv.0, itv.1, itv.2);
-    simple_logger::init_with_level(cfg.general.log_level).expect("Cannot initialize logger.");
+
+    _ = simple_logger::init_with_level(cfg.general.log_level);
 
     // Set rayon threadpool
     _ = ThreadPoolBuilder::new().num_threads(threads).build_global();
@@ -82,7 +83,7 @@ fn run_nucflag_itv(
 #[pyo3(signature = (preset = None, cfg = None))]
 fn print_config_from_preset(preset: Option<&str>, cfg: Option<&str>) -> PyResult<()> {
     let cfg = read_cfg(cfg, preset).map_err(|err| PyValueError::new_err(err.to_string()))?;
-    simple_logger::init_with_level(cfg.general.log_level).expect("Cannot initialize logger.");
+    _ = simple_logger::init_with_level(cfg.general.log_level);
     log::info!("Using config:\n{cfg:#?}");
     Ok(())
 }
@@ -122,7 +123,7 @@ fn run_nucflag(
 ) -> PyResult<Vec<PyNucFlagResult>> {
     let cfg = read_cfg(cfg, preset).map_err(|err| PyValueError::new_err(err.to_string()))?;
 
-    simple_logger::init_with_level(cfg.general.log_level).expect("Cannot initialize logger.");
+    _ = simple_logger::init_with_level(cfg.general.log_level);
 
     log::info!("Using config:\n{cfg:#?}");
 

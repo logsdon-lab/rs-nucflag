@@ -63,7 +63,7 @@ impl From<MisassemblyType> for &'static str {
             MisassemblyType::FalseDupe => "false_dupe",
             MisassemblyType::Repeat(Repeat::Scaffold) => "scaffold",
             MisassemblyType::Repeat(Repeat::Homopolymer) => "homopolymer",
-            MisassemblyType::Repeat(Repeat::Repeat) => "simple_repeat",
+            MisassemblyType::Repeat(Repeat::Repeat) => "repeat",
             MisassemblyType::Null => "null",
         }
     }
@@ -82,7 +82,7 @@ impl FromStr for MisassemblyType {
             "false_dupe" => MisassemblyType::FalseDupe,
             "scaffold" => MisassemblyType::Repeat(Repeat::Scaffold),
             "homopolymer" => MisassemblyType::Repeat(Repeat::Homopolymer),
-            "simple_repeat" => MisassemblyType::Repeat(Repeat::Repeat),
+            "repeat" => MisassemblyType::Repeat(Repeat::Repeat),
             _ => MisassemblyType::Null,
         })
     }
