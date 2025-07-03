@@ -33,20 +33,32 @@ impl MisassemblyType {
     pub fn item_rgb(&self) -> &'static str {
         match self {
             // Purple
+            // #800080
             MisassemblyType::Indel => "128,0,128",
             // Teal
+            //  #80FFFF
             MisassemblyType::SoftClip => "0,255,255",
             // Pink
+            // #FF0080
             MisassemblyType::LowQuality => "255,0,128",
             // Green
+            // #00FF00
             MisassemblyType::Collapse => "0,255,0",
             // Orange
-            MisassemblyType::Misjoin => "255,165,0",
+            // #FF8000
+            MisassemblyType::Misjoin => "255,128,0",
             // Blue
+            // #0000FF
             MisassemblyType::FalseDupe => "0,0,255",
+            // Scaffold
+            // #808080
             MisassemblyType::Repeat(Repeat::Scaffold) => "128,128,128",
-            MisassemblyType::Repeat(Repeat::Homopolymer) => "128,128,128",
-            MisassemblyType::Repeat(Repeat::Repeat) => "128,128,128",
+            // Yellow
+            // #ECEC00
+            MisassemblyType::Repeat(Repeat::Homopolymer) => "236,236,0",
+            // Dark green
+            // #336600
+            MisassemblyType::Repeat(Repeat::Repeat) => "51,102,0",
             MisassemblyType::Null => "0,0,0",
         }
     }
