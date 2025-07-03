@@ -172,7 +172,7 @@ impl Default for GeneralConfig {
             log_level: Level::Info,
             bp_merge: 5_000,
             bp_wg_window: 10_000_000,
-            ignore_boundaries: true,
+            ignore_boundaries: false,
         }
     }
 }

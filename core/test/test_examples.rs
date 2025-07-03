@@ -98,7 +98,7 @@ fn test_ignore_low_cov_boundaries() {
         let bed = format!("{indir}/{case}.bed");
         let cfg = format!("{indir}/{case}{suffix}.toml");
         let expected = format!("{expdir}/{case}{suffix}.bed");
-        // check_output(&aln, &bed, Some(&fa), None, None, Some(&expected));
+        // check_output(&aln, &bed, None, Some(&cfg), None, Some(&expected));
         check_output(&aln, &bed, None, Some(&cfg), Some(&expected), None)
     }
 }
@@ -117,27 +117,19 @@ fn test_het() {
     }
 }
 
-// #[test]
-// fn test_hsat() {
-//     todo!("Figure out what is nondetermenistic in output for good coverage");
-//     /*
-//     diff /project/logsdon_shared/projects/Keith/rs-nucflag/core/test/hsat/expected/aln_1.bed /project/logsdon_shared/projects/Keith/rs-nucflag/core/test/hsat/expected/aln_1_.bed
-//     25c25
-//     < NA18534_chr4_haplotype2-0000075       52388511        53432829        good    19.0    +       52388511        53432829        0,0,0
-//     ---
-//     > NA18534_chr4_haplotype2-0000075       52388511        53432829        good    21.0    +       52388511        53432829        0,0,0
-//     */
-//     let indir = "test/hsat/input";
-//     let expdir = "test/hsat/expected";
-//     for case in ["aln_1"] {
-//         let aln = format!("{indir}/{case}.bam");
-//         let fa = format!("{indir}/{case}.fa");
-//         let bed = format!("{indir}/{case}.bed");
-//         let expected = format!("{expdir}/{case}.bed");
-//         // check_output(&aln, &bed, Some(&fa), None, None, Some(&expected));
-//         check_output(&aln, &bed, Some(&fa), None, Some(&expected), Some(&format!("{expdir}/{case}_.bed")))
-//     }
-// }
+#[test]
+fn test_hsat() {
+    let indir = "test/hsat/input";
+    let expdir = "test/hsat/expected";
+    for case in ["aln_1"] {
+        let aln = format!("{indir}/{case}.bam");
+        let fa = format!("{indir}/{case}.fa");
+        let bed = format!("{indir}/{case}.bed");
+        let expected = format!("{expdir}/{case}.bed");
+        // check_output(&aln, &bed, Some(&fa), None, None, Some(&expected));
+        check_output(&aln, &bed, Some(&fa), None, Some(&expected), None)
+    }
+}
 
 #[test]
 fn test_minor_collapse() {

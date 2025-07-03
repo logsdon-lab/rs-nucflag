@@ -1,7 +1,8 @@
 [general]
-verbose = true
+log_level = "info"
 bp_merge = 5_000
 bp_wg_window = 10_000_000
+ignore_boundaries = false
 
 [cov]
 n_zscores_low = 3.5

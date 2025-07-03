@@ -21,6 +21,7 @@ pub struct BinStats {
 macro_rules! get_median_cov {
     ($lf:expr, $start:expr, $end:expr) => {
         $lf.filter(col("pos").gt_eq($start).and(col("pos").lt_eq($end)))
+            .select([col("cov")])
             .collect()?
             .column("cov")?
             .median_reduce()?
@@ -47,7 +48,6 @@ pub fn group_pileup_by_ani(
     let region = Region::new(itv.metadata.clone(), position);
     let seq = reader_fasta.query(&region)?;
 
-    // TODO: Something here is non-deterministic.
     let itv_idents: COITree<u64, usize> = {
         log::info!("Calculating self-identity for {ctg}:{st}-{end} to bin region.");
         let bed_ident = compute_seq_self_identity(
