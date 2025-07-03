@@ -85,13 +85,10 @@ fn ignore_boundary_misassemblies(
         }) {
             let og_mdata = itv.metadata;
             log::debug!("Filtered out {:?}: {ctg}:{}-{} at contig start with coverage below bin median {:?}", og_mdata.0, itv.first, itv.last, &bin_stats[&og_mdata.2]);
-            std::mem::swap(
-                itv,
-                &mut Interval::new(
-                    itv.first,
-                    itv.last,
-                    (MisassemblyType::Null, og_mdata.1, og_mdata.2),
-                ),
+            *itv = Interval::new(
+                itv.first,
+                itv.last,
+                (MisassemblyType::Null, og_mdata.1, og_mdata.2),
             );
             idx_st += 1
         }
@@ -114,13 +111,10 @@ fn ignore_boundary_misassemblies(
                 itv.last,
                 &bin_stats[&og_mdata.2]
             );
-            std::mem::swap(
-                itv,
-                &mut Interval::new(
-                    itv.first,
-                    itv.last,
-                    (MisassemblyType::Null, og_mdata.1, og_mdata.2),
-                ),
+            *itv = Interval::new(
+                itv.first,
+                itv.last,
+                (MisassemblyType::Null, og_mdata.1, og_mdata.2),
             );
             idx_end -= 1
         }

@@ -79,7 +79,8 @@ fn test_dupes() {
 fn test_ending_scaffold() {
     let indir = "test/ending_scaffold/input";
     let expdir = "test/ending_scaffold/expected";
-    for case in ["aln_1"] {
+    {
+        let case = "aln_1";
         let aln = format!("{indir}/{case}.bam");
         let fa = format!("{indir}/{case}.fa");
         let bed = format!("{indir}/{case}.bed");
@@ -107,7 +108,8 @@ fn test_ignore_low_cov_boundaries() {
 fn test_het() {
     let indir = "test/het/input";
     let expdir = "test/het/expected";
-    for case in ["aln_1"] {
+    {
+        let case = "aln_1";
         let aln = format!("{indir}/{case}.bam");
         let cfg = format!("{indir}/{case}.toml");
         let bed = format!("{indir}/{case}.bed");
@@ -121,7 +123,8 @@ fn test_het() {
 fn test_hsat() {
     let indir = "test/hsat/input";
     let expdir = "test/hsat/expected";
-    for case in ["aln_1"] {
+    {
+        let case = "aln_1";
         let aln = format!("{indir}/{case}.bam");
         let fa = format!("{indir}/{case}.fa");
         let bed = format!("{indir}/{case}.bed");
@@ -148,7 +151,8 @@ fn test_minor_collapse() {
 fn test_misjoin() {
     let indir = "test/misjoin/input";
     let expdir = "test/misjoin/expected";
-    for case in ["aln_1"] {
+    {
+        let case = "aln_1";
         let aln = format!("{indir}/{case}.bam");
         let bed = format!("{indir}/{case}.bed");
         let expected = format!("{expdir}/{case}.bed");
@@ -161,7 +165,8 @@ fn test_misjoin() {
 fn test_standard() {
     let indir = "test/standard/input";
     let expdir = "test/standard/expected";
-    for case in ["aln_1"] {
+    {
+        let case = "aln_1";
         let aln = format!("{indir}/{case}.bam");
         let bed = format!("{indir}/{case}.bed");
         let expected = format!("{expdir}/{case}.bed");
