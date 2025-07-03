@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use log::Level;
 use serde::Deserialize;
 
-use crate::{misassembly::MisassemblyType, repeats::Repeat};
+use crate::{misassembly::MisassemblyType, pileup::PileupMAPQFn, repeats::Repeat};
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
@@ -157,6 +157,7 @@ pub struct GeneralConfig {
     /// Display log level.
     pub log_level: Level,
     /// Number of bases to merge misassembly intervals.
+    /// * TODO: Mention merging rules.
     pub bp_merge: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
     pub bp_wg_window: usize,
@@ -164,6 +165,11 @@ pub struct GeneralConfig {
     /// * If fasta provided, defaults to boundaries of each contig.
     /// * With no fasta, defaults to boundaries of queried region.
     pub ignore_boundaries: bool,
+    /// Function to use for MAPQ pileup.
+    /// * [`PileupMAPQFn::Max`] is generally best for avoiding calling false misassembly calls associated with low coverage regions.
+    ///     * [`MisassemblyType::FalseDupe`] and [`MisassemblyType::LowQuality`]
+    /// * [`PileupMAPQFn::Median`]/[`PileupMAPQFn::Mean`] is better suited for generating pileups or plots.
+    pub mapq_agg_fn: PileupMAPQFn,
 }
 
 impl Default for GeneralConfig {
@@ -173,6 +179,7 @@ impl Default for GeneralConfig {
             bp_merge: 5_000,
             bp_wg_window: 10_000_000,
             ignore_boundaries: false,
+            mapq_agg_fn: PileupMAPQFn::Max,
         }
     }
 }

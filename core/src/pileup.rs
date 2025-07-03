@@ -12,9 +12,18 @@ use noodles::{
     },
 };
 use polars::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, fs::File, path::Path};
 
 use crate::config::Config;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum PileupMAPQFn {
+    Median,
+    Mean,
+    #[default]
+    Max,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PileupInfo {
@@ -264,10 +273,18 @@ pub(crate) fn merge_pileup_info(
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
     );
+    // Choose pileup function.
+    // IMPORTANT: For false duplication detection, we need to be absolutely sure since we only have coverage and mapq to go off of.
+    // * Max is generally best here as we only care if one read is high mapq.
+    let pileup_fn: Box<dyn Fn(&PileupInfo) -> u8> = Box::new(match cfg.general.mapq_agg_fn {
+        PileupMAPQFn::Max => |p: &PileupInfo| p.mapq.iter().max().cloned().unwrap_or_default(),
+        PileupMAPQFn::Mean => |p: &PileupInfo| p.mean_mapq().unwrap_or_default(),
+        PileupMAPQFn::Median => |p: &PileupInfo| p.median_mapq().unwrap_or_default(),
+    });
     for p in pileup.into_iter() {
         cov_cnts.push(p.n_cov);
         mismatch_cnts.push(p.n_mismatch);
-        mapq_cnts.push(p.median_mapq().unwrap_or(0));
+        mapq_cnts.push(pileup_fn(&p));
         indel_cnts.push(p.n_indel);
         softclip_cnts.push(p.n_softclip);
     }
@@ -300,8 +317,12 @@ pub(crate) fn merge_pileup_info(
 
 #[cfg(test)]
 mod test {
-    use crate::pileup::{AlignmentFile, PileupInfo, PileupSummary};
+    use crate::{
+        config::Config,
+        pileup::{merge_pileup_info, AlignmentFile, PileupInfo, PileupSummary},
+    };
     use noodles::core::{Position, Region};
+    use polars::df;
 
     #[test]
     fn test_pileup() {
@@ -363,6 +384,33 @@ mod test {
                 ]
                 .to_vec()
             }
+        );
+    }
+
+    #[test]
+    fn test_pileup_summary_df() {
+        let mut bam = AlignmentFile::new("test/pileup/input/test.bam", None::<&str>).unwrap();
+        let itv = coitrees::Interval::new(
+            9667238,
+            9667240,
+            "K1463_2281_chr15_contig-0000423".to_owned(),
+        );
+        let res = bam.pileup(&itv, 1, 1).unwrap();
+
+        let config = Config::default();
+        let df_pileup =
+            merge_pileup_info(res.pileups, itv.first as u64, itv.last as u64, &config).unwrap();
+        assert_eq!(
+            df_pileup,
+            df!(
+                "pos" => [9667238, 9667239, 9667240],
+                "cov" => [41;3],
+                "mismatch" => [0; 3],
+                "mapq" => [60; 3],
+                "indel" => [20.0, 26.0, 19.0],
+                "softclip" => [0; 3],
+            )
+            .unwrap()
         );
     }
 }

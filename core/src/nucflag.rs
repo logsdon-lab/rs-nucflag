@@ -155,7 +155,7 @@ where
             lit(ctg.clone()).alias("chrom"),
             col("st").alias("thickStart"),
             col("end").alias("thickEnd"),
-            lit("+").alias("strand"),
+            lit(".").alias("strand"),
             // Convert statuses into colors.
             col("status")
                 .map(
