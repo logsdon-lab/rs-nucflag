@@ -440,7 +440,6 @@ pub(crate) fn classify_peaks(
 ) -> eyre::Result<(DataFrame, DataFrame, BinStats)> {
     let thr_false_dupe = (cfg.cov.ratio_false_dupe * median_cov as f32).floor();
     let thr_collapse = (cfg.cov.ratio_collapse * median_cov as f32).floor();
-    let thr_misjoin = (cfg.cov.ratio_misjoin * median_cov as f32).floor();
 
     let lf_pileup = lf_pileup
         .with_column(
@@ -463,33 +462,26 @@ pub(crate) fn classify_peaks(
         )
         .with_column(
             // collapse
-            // Regions with at double the coverage and high indel peak.
+            // Regions with at double the coverage and dip in mapping quality or increase in mismatches.
             when(
                 col("cov_peak")
                     .eq(lit("high"))
                     .and(col("cov").gt_eq(lit(thr_collapse)))
-                    .and(col("indel_peak").eq(lit("high"))),
+                    .and(col("mapq_peak").eq(lit("low")))
+                    .and(col("mismatch_peak").eq(lit("high"))),
             )
             .then(lit("collapse"))
             // misjoin
-            // Regions with zero coverage or a dip in coverage with a indels or softclipping accounting for majority of the dip.
-            // Might be scaffold or misjoined contig. Without reference, not known.
-            .when(
-                col("cov")
-                    .eq(lit(0))
-                    .or(col("cov_peak")
-                        .eq(lit("low"))
-                        .and(col("cov").lt_eq(thr_misjoin)))
-                    .or((col("cov") - col("indel")).lt_eq(thr_misjoin)),
-            )
+            // Regions with zero coverage.
+            .when(col("cov").eq(lit(0)))
             .then(lit("misjoin"))
             // false_dupe
-            // Region with half of the expected coverage and zero-mapq due to multi-mapping.
+            // Region with half of the expected coverage and a maximum mapq of zero due to multiple primary mappings.
             // Either a duplicated contig, duplicated region, or an SV (large insertion of repetive region).
             .when(
                 col("cov")
                     .lt_eq(lit(thr_false_dupe))
-                    .and(col("mapq").eq(lit(0))),
+                    .and(col("mapq_max").eq(lit(0))),
             )
             .then(lit("false_dupe"))
             .otherwise(col("status"))

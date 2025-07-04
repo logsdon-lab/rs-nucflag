@@ -17,6 +17,8 @@ pub struct Config {
     pub indel: IndelConfig,
     /// Softclip base config.
     pub softclip: SoftClipConfig,
+    /// MAPQ base config.
+    pub mapq: MAPQConfig,
     /// Repeat detection config.
     pub repeat: Option<RepeatConfig>,
     /// Bin pileup based on self-identity. Requires fasta in input.
@@ -33,6 +35,7 @@ impl Default for Config {
             mismatch: MismatchConfig::default(),
             indel: IndelConfig::default(),
             softclip: SoftClipConfig::default(),
+            mapq: MAPQConfig::default(),
             group_by_ani: Some(GroupByANIConfig::default()),
             minimum_size: Some(MinimumSizeConfig::default()),
             repeat: Some(RepeatConfig::default()),
@@ -48,7 +51,6 @@ impl Config {
             cov: CoverageConfig {
                 n_zscores_high: other.cov.n_zscores_high,
                 n_zscores_low: other.cov.n_zscores_low,
-                ratio_misjoin: other.cov.ratio_misjoin,
                 rolling_mean_window: other.cov.rolling_mean_window,
                 ratio_collapse: other.cov.ratio_collapse,
                 ..self.cov
@@ -57,6 +59,7 @@ impl Config {
                 rolling_mean_window: other.mismatch.rolling_mean_window,
                 ..self.mismatch
             },
+            mapq: self.mapq,
             indel: IndelConfig {
                 rolling_mean_window: other.indel.rolling_mean_window,
                 min_ins_size: other.indel.min_ins_size,
@@ -165,11 +168,6 @@ pub struct GeneralConfig {
     /// * If fasta provided, defaults to boundaries of each contig.
     /// * With no fasta, defaults to boundaries of queried region.
     pub ignore_boundaries: bool,
-    /// Function to use for MAPQ pileup.
-    /// * [`PileupMAPQFn::Max`] is generally best for avoiding calling false misassembly calls associated with low coverage regions.
-    ///     * [`MisassemblyType::FalseDupe`] and [`MisassemblyType::LowQuality`]
-    /// * [`PileupMAPQFn::Median`]/[`PileupMAPQFn::Mean`] is better suited for generating pileups or plots.
-    pub mapq_agg_fn: PileupMAPQFn,
 }
 
 impl Default for GeneralConfig {
@@ -179,7 +177,6 @@ impl Default for GeneralConfig {
             bp_merge: 5_000,
             bp_wg_window: 10_000_000,
             ignore_boundaries: false,
-            mapq_agg_fn: PileupMAPQFn::Max,
         }
     }
 }
@@ -191,8 +188,6 @@ pub struct CoverageConfig {
     pub n_zscores_high: f32,
     /// Number of z-scores below the median to be considered a misassembly.
     pub n_zscores_low: f32,
-    /// Minimum coverage ratio required for a misjoin.
-    pub ratio_misjoin: f32,
     /// Minimum coverage ratio required for a collapse.
     pub ratio_collapse: f32,
     /// Minimum coverage ratio required for a false dupe.
@@ -207,12 +202,29 @@ impl Default for CoverageConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.5,
-            n_zscores_low: 4.5,
-            ratio_misjoin: 0.01,
-            ratio_collapse: 2.0,
+            n_zscores_low: 3.5,
+            ratio_collapse: 1.5,
             ratio_false_dupe: 0.5,
             rolling_mean_window: None,
             baseline: None,
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+/// Configuration for the mapq signal.
+pub struct MAPQConfig {
+    /// Number of z-scores above the median to flag.
+    pub n_zscores_low: f32,
+    /// Function to use for MAPQ pileup.
+    pub mapq_agg_fn: PileupMAPQFn,
+}
+
+impl Default for MAPQConfig {
+    fn default() -> Self {
+        Self {
+            n_zscores_low: 1.5,
+            mapq_agg_fn: PileupMAPQFn::Mean,
         }
     }
 }
@@ -232,7 +244,7 @@ impl Default for MismatchConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.5,
-            ratio_het: 0.2,
+            ratio_het: 0.1,
             rolling_mean_window: None,
         }
     }

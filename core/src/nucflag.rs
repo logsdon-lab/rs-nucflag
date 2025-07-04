@@ -31,12 +31,14 @@ fn nucflag_grp(
         df_pileup.select(["pos", "cov"])?,
         cfg.cov.n_zscores_low,
         cfg.cov.n_zscores_high,
+        false,
     )?;
     // Call peaks in mismatch-base signal.
     let lf_mismatch_peaks = find_peaks(
         df_pileup.select(["pos", "mismatch"])?,
         cfg.mismatch.n_zscores_high,
         cfg.mismatch.n_zscores_high,
+        true,
     )?;
     // Detect indel peaks.
     let lf_indel_peaks = find_peaks(
@@ -44,6 +46,7 @@ fn nucflag_grp(
         // Don't care about dips in indels.
         cfg.indel.n_zscores_high,
         cfg.indel.n_zscores_high,
+        true,
     )?;
     // Detect softclip peaks.
     let lf_softclip_peaks = find_peaks(
@@ -51,6 +54,15 @@ fn nucflag_grp(
         // Don't care about dips in indels.
         cfg.softclip.n_zscores_high,
         cfg.softclip.n_zscores_high,
+        true,
+    )?;
+    // Detect mapq dips.
+    let lf_mapq_dips = find_peaks(
+        df_pileup.select(["pos", "mapq"])?,
+        // Don't care about peaks in mapq.
+        cfg.mapq.n_zscores_low,
+        cfg.mapq.n_zscores_low,
+        false,
     )?;
 
     let lf_pileup = lf_cov_peaks
@@ -60,21 +72,30 @@ fn nucflag_grp(
             [col("pos")],
             JoinArgs::new(JoinType::Left),
         )
+        .with_column(col("indel_peak").fill_null(lit("null")))
         .join(
             lf_mismatch_peaks,
             [col("pos")],
             [col("pos")],
             JoinArgs::new(JoinType::Left),
         )
+        .with_column(col("mismatch_peak").fill_null(lit("null")))
         .join(
             lf_softclip_peaks,
             [col("pos")],
             [col("pos")],
             JoinArgs::new(JoinType::Left),
         )
+        .with_column(col("softclip_peak").fill_null(lit("null")))
+        .join(
+            lf_mapq_dips,
+            [col("pos")],
+            [col("pos")],
+            JoinArgs::new(JoinType::Left),
+        )
         .join(
             df_pileup
-                .select(["pos", "mapq", "indel", "softclip", "bin"])?
+                .select(["pos", "mapq_max", "indel", "softclip", "bin"])?
                 .lazy(),
             [col("pos")],
             [col("pos")],

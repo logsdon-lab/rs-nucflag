@@ -20,9 +20,8 @@ use crate::config::Config;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PileupMAPQFn {
     Median,
-    Mean,
     #[default]
-    Max,
+    Mean,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -57,13 +56,19 @@ impl PileupInfo {
         }
     }
     pub fn mean_mapq(&self) -> eyre::Result<u8> {
-        let Some(length) = TryInto::<u8>::try_into(self.mapq.len())
+        let Some(length) = TryInto::<u32>::try_into(self.mapq.len())
             .ok()
             .filter(|l| *l > 0)
         else {
             return Ok(0);
         };
-        Ok(self.mapq.iter().sum::<u8>().div_ceil(length))
+        Ok(TryInto::<u8>::try_into(
+            self.mapq
+                .iter()
+                .map(|m| u32::from(*m))
+                .sum::<u32>()
+                .div_ceil(length),
+        )?)
     }
 }
 
@@ -136,9 +141,6 @@ macro_rules! pileup {
         {
             let pos = refpos - $st;
             let pileup_info = &mut $pileup_infos[pos];
-            pileup_info
-                .mapq
-                .push($read.mapping_quality().unwrap().get());
 
             match kind {
                 Kind::Deletion | Kind::Insertion => {
@@ -154,7 +156,9 @@ macro_rules! pileup {
                 }
                 _ => (),
             }
-
+            pileup_info
+                .mapq
+                .push($read.mapping_quality().unwrap().get());
             pileup_info.n_cov += 1;
         }
     };
@@ -266,7 +270,15 @@ pub(crate) fn merge_pileup_info(
     end: u64,
     cfg: &Config,
 ) -> eyre::Result<DataFrame> {
-    let (mut cov_cnts, mut mismatch_cnts, mut mapq_cnts, mut indel_cnts, mut softclip_cnts) = (
+    let (
+        mut cov_cnts,
+        mut mismatch_cnts,
+        mut mapq_mean_cnts,
+        mut mapq_max_cnts,
+        mut indel_cnts,
+        mut softclip_cnts,
+    ) = (
+        Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
@@ -276,24 +288,24 @@ pub(crate) fn merge_pileup_info(
     // Choose pileup function.
     // IMPORTANT: For false duplication detection, we need to be absolutely sure since we only have coverage and mapq to go off of.
     // * Max is generally best here as we only care if one read is high mapq.
-    let pileup_fn: Box<dyn Fn(&PileupInfo) -> u8> = Box::new(match cfg.general.mapq_agg_fn {
-        PileupMAPQFn::Max => |p: &PileupInfo| p.mapq.iter().max().cloned().unwrap_or_default(),
+    let pileup_fn: Box<dyn Fn(&PileupInfo) -> u8> = Box::new(match cfg.mapq.mapq_agg_fn {
         PileupMAPQFn::Mean => |p: &PileupInfo| p.mean_mapq().unwrap_or_default(),
         PileupMAPQFn::Median => |p: &PileupInfo| p.median_mapq().unwrap_or_default(),
     });
     for p in pileup.into_iter() {
         cov_cnts.push(p.n_cov);
         mismatch_cnts.push(p.n_mismatch);
-        mapq_cnts.push(pileup_fn(&p));
+        mapq_max_cnts.push(p.mapq.iter().max().cloned().unwrap_or_default());
+        mapq_mean_cnts.push(pileup_fn(&p));
         indel_cnts.push(p.n_indel);
         softclip_cnts.push(p.n_softclip);
     }
-
     let mut lf = DataFrame::new(vec![
         Column::new("pos".into(), st..end + 1),
         Column::new("cov".into(), cov_cnts),
         Column::new("mismatch".into(), mismatch_cnts),
-        Column::new("mapq".into(), mapq_cnts),
+        Column::new("mapq_max".into(), mapq_max_cnts),
+        Column::new("mapq".into(), mapq_mean_cnts),
         Column::new("indel".into(), indel_cnts),
         Column::new("softclip".into(), softclip_cnts),
     ])?
@@ -347,11 +359,9 @@ mod test {
                         n_indel: 40,
                         n_softclip: 0,
                         mapq: [
-                            60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 18, 18, 34, 34, 60, 60, 35, 35,
-                            60, 60, 60, 60, 33, 33, 30, 30, 60, 60, 33, 33, 34, 34, 33, 33, 31, 31,
-                            33, 33, 36, 36, 32, 32, 32, 32, 60, 60, 35, 35, 33, 33, 36, 36, 31, 35,
-                            35, 35, 35, 33, 33, 33, 33, 34, 34, 35, 35, 60, 60, 33, 33, 60, 60, 60,
-                            60, 60, 60, 60, 60, 60, 60, 60, 60
+                            60, 60, 60, 60, 60, 18, 34, 60, 35, 60, 60, 33, 30, 60, 33, 34, 33, 31,
+                            33, 36, 32, 32, 60, 35, 33, 36, 31, 35, 35, 33, 33, 34, 35, 60, 33, 60,
+                            60, 60, 60, 60, 60
                         ]
                         .to_vec()
                     },
@@ -373,11 +383,9 @@ mod test {
                         n_indel: 38,
                         n_softclip: 0,
                         mapq: [
-                            60, 60, 60, 60, 60, 60, 60, 60, 18, 18, 34, 34, 60, 60, 35, 35, 60, 60,
-                            60, 60, 33, 33, 30, 30, 60, 60, 33, 33, 34, 34, 33, 33, 31, 31, 33, 33,
-                            36, 36, 32, 32, 32, 32, 60, 60, 35, 35, 33, 33, 36, 36, 31, 31, 35, 35,
-                            35, 35, 33, 33, 33, 33, 34, 34, 35, 35, 60, 60, 33, 33, 60, 60, 60, 60,
-                            60, 60, 60, 60, 60, 60, 60
+                            60, 60, 60, 60, 60, 18, 34, 60, 35, 60, 60, 33, 30, 60, 33, 34, 33, 31,
+                            33, 36, 32, 32, 60, 35, 33, 36, 31, 35, 35, 33, 33, 34, 35, 60, 33, 60,
+                            60, 60, 60, 60, 60
                         ]
                         .to_vec()
                     }
@@ -406,7 +414,8 @@ mod test {
                 "pos" => [9667238, 9667239, 9667240],
                 "cov" => [41;3],
                 "mismatch" => [0; 3],
-                "mapq" => [60; 3],
+                "mapq_max" => [60; 3],
+                "mapq" => [45; 3],
                 "indel" => [20.0, 26.0, 19.0],
                 "softclip" => [0; 3],
             )

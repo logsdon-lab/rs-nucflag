@@ -5,6 +5,7 @@ pub fn find_peaks(
     df_pileup: DataFrame,
     n_zscore_low: f32,
     n_zscore_high: f32,
+    drop_zeroes: bool,
 ) -> eyre::Result<LazyFrame> {
     assert_eq!(
         df_pileup.get_column_names().len(),
@@ -28,6 +29,13 @@ pub fn find_peaks(
             true,
         )
         .select([col("pos"), col(&colname)]);
+
+    // Remove zeroes.
+    let lf_pileup = if drop_zeroes {
+        lf_pileup.filter(col(&colname).neq(lit(0)))
+    } else {
+        lf_pileup
+    };
 
     let median_col = format!("{colname}_median");
     let stdev_col = format!("{colname}_stdev");
@@ -80,7 +88,7 @@ mod test {
         )
         .unwrap();
 
-        let df_peaks = find_peaks(df, 1.5, 1.5).unwrap().collect().unwrap();
+        let df_peaks = find_peaks(df, 1.5, 1.5, false).unwrap().collect().unwrap();
         let peaks = df_peaks.column("first_peak").unwrap();
         assert_eq!(
             vec!["null", "high", "null", "low", "null"],
