@@ -440,6 +440,7 @@ pub(crate) fn classify_peaks(
 ) -> eyre::Result<(DataFrame, DataFrame, BinStats)> {
     let thr_false_dupe = (cfg.cov.ratio_false_dupe * median_cov as f32).floor();
     let thr_collapse = (cfg.cov.ratio_collapse * median_cov as f32).floor();
+    let thr_misjoin = (cfg.cov.ratio_misjoin * median_cov as f32).floor();
 
     let lf_pileup = lf_pileup
         .with_column(
@@ -462,18 +463,27 @@ pub(crate) fn classify_peaks(
         )
         .with_column(
             // collapse
-            // Regions with at double the coverage and dip in mapping quality or increase in mismatches.
+            // Regions with at double the coverage and dip in mapping quality or increase in mismatches/indels.
             when(
                 col("cov_peak")
                     .eq(lit("high"))
                     .and(col("cov").gt_eq(lit(thr_collapse)))
                     .and(col("mapq_peak").eq(lit("low")))
-                    .and(col("mismatch_peak").eq(lit("high"))),
+                    .and(
+                        col("mismatch_peak")
+                            .eq(lit("high"))
+                            .or(col("indel_peak").eq(lit("high"))),
+                    ),
             )
             .then(lit("collapse"))
             // misjoin
-            // Regions with zero coverage.
-            .when(col("cov").eq(lit(0)))
+            // Regions with zero coverage or drop in coverage and mapq.
+            .when(
+                col("cov").eq(lit(0)).or(col("cov_peak")
+                    .eq(lit("low"))
+                    .and(col("mapq_peak").eq(lit("low")))
+                    .and(col("cov").lt_eq(thr_misjoin))),
+            )
             .then(lit("misjoin"))
             // false_dupe
             // Region with half of the expected coverage and a maximum mapq of zero due to multiple primary mappings.

@@ -188,6 +188,8 @@ pub struct CoverageConfig {
     pub n_zscores_high: f32,
     /// Number of z-scores below the median to be considered a misassembly.
     pub n_zscores_low: f32,
+    /// Minimum coverage ratio required for a misjoin.
+    pub ratio_misjoin: f32,
     /// Minimum coverage ratio required for a collapse.
     pub ratio_collapse: f32,
     /// Minimum coverage ratio required for a false dupe.
@@ -204,6 +206,7 @@ impl Default for CoverageConfig {
             n_zscores_high: 3.5,
             n_zscores_low: 3.5,
             ratio_collapse: 1.5,
+            ratio_misjoin: 0.1,
             ratio_false_dupe: 0.5,
             rolling_mean_window: None,
             baseline: None,
@@ -223,7 +226,7 @@ pub struct MAPQConfig {
 impl Default for MAPQConfig {
     fn default() -> Self {
         Self {
-            n_zscores_low: 1.5,
+            n_zscores_low: 1.0,
             mapq_agg_fn: PileupMAPQFn::Mean,
         }
     }
