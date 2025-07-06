@@ -174,3 +174,19 @@ fn test_standard() {
         check_output(&aln, &bed, None, None, Some(&expected), None)
     }
 }
+
+#[test]
+fn test_ignore_false_collapse() {
+    let indir = "test/ignore_false_collapse/input";
+    let expdir = "test/ignore_false_collapse/expected";
+    {
+        let case = "aln_1";
+        let aln = format!("{indir}/{case}.cram");
+        let fa = format!("{indir}/{case}.fa");
+        let cfg = format!("{indir}/{case}.toml");
+        let bed = format!("{indir}/{case}.bed");
+        let expected = format!("{expdir}/{case}.bed");
+        // check_output(&aln, &bed, None, None, None, Some(&expected));
+        check_output(&aln, &bed, Some(&fa), Some(&cfg), Some(&expected), None)
+    }
+}

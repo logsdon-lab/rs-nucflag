@@ -124,5 +124,14 @@
         "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/standard/expected/haplotype2-0000133_3021508-8691473.png",
         "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/standard/expected/aln_1.png",
         "additional_flags": []
+    },
+    "ignore_false_collapse": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_1.cram",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_1.bed",
+        "config": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_1.config",
+        "fasta": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_1.fa",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/expected/HG00513_chr7_haplotype1-0000002.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/expected/aln_1.png",
+        "additional_flags": []
     }
 }

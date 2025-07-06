@@ -49,10 +49,10 @@ impl Config {
         Self {
             general: self.general,
             cov: CoverageConfig {
-                n_zscores_high: other.cov.n_zscores_high,
                 n_zscores_low: other.cov.n_zscores_low,
                 rolling_mean_window: other.cov.rolling_mean_window,
                 ratio_collapse: other.cov.ratio_collapse,
+                ratio_misjoin: other.cov.ratio_misjoin,
                 ..self.cov
             },
             mismatch: MismatchConfig {
@@ -272,7 +272,7 @@ impl Default for IndelConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 5.0,
-            ratio_indel: 0.25,
+            ratio_indel: 0.2,
             min_ins_size: 2,
             min_del_size: 2,
             rolling_mean_window: Some(3),

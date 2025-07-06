@@ -5,7 +5,6 @@ use noodles::{
     bam, bgzf,
     core::{Position, Region},
     cram,
-    fasta::{self, repository},
     sam::{
         alignment::record::{cigar::op::Kind, Cigar},
         Header,
@@ -13,7 +12,7 @@ use noodles::{
 };
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Debug, fs::File, path::Path};
+use std::{ffi::OsStr, fmt::Debug, fs::File, path::Path};
 
 use crate::config::Config;
 
@@ -164,30 +163,19 @@ macro_rules! pileup {
 }
 
 impl AlignmentFile {
-    pub fn new<A, F>(aln: A, fasta: Option<F>) -> eyre::Result<Self>
-    where
-        A: AsRef<Path> + Debug,
-        F: AsRef<Path> + Debug,
-    {
-        // Try to build cram.
-        let is_cram = cram::io::indexed_reader::Builder::default()
-            .build_from_path(aln.as_ref())
-            .ok();
-        // Then check if fasta and cram.
-        if let Some(fasta) = is_cram.and(fasta) {
-            let fasta_fh = fasta::io::indexed_reader::Builder::default()
-                .build_from_path(&fasta)
-                .with_context(|| format!("Cannot read indexed fasta file ({fasta:?})"))?;
-            let reference_sequence_repository =
-                fasta::Repository::new(repository::adapters::IndexedReader::new(fasta_fh));
+    pub fn new(aln: impl AsRef<Path> + Debug) -> eyre::Result<Self> {
+        if aln
+            .as_ref()
+            .extension()
+            .and_then(OsStr::to_str)
+            .eq(&Some("cram"))
+        {
             Ok(Self::Cram(
                 cram::io::indexed_reader::Builder::default()
-                    .set_reference_sequence_repository(reference_sequence_repository)
                     .build_from_path(&aln)
                     .with_context(|| format!("Cannot read indexed CRAM file ({aln:?})"))?,
             ))
         } else {
-            // Otherwise, assume bam.
             Ok(Self::Bam(
                 bam::io::indexed_reader::Builder::default()
                     .build_from_path(&aln)
@@ -337,7 +325,7 @@ mod test {
 
     #[test]
     fn test_pileup() {
-        let mut bam = AlignmentFile::new("test/pileup/input/test.bam", None::<&str>).unwrap();
+        let mut bam = AlignmentFile::new("test/pileup/input/test.bam").unwrap();
         let itv = coitrees::Interval::new(
             9667238,
             9667240,
@@ -396,7 +384,7 @@ mod test {
 
     #[test]
     fn test_pileup_summary_df() {
-        let mut bam = AlignmentFile::new("test/pileup/input/test.bam", None::<&str>).unwrap();
+        let mut bam = AlignmentFile::new("test/pileup/input/test.bam").unwrap();
         let itv = coitrees::Interval::new(
             9667238,
             9667240,

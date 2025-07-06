@@ -6,12 +6,10 @@ use std::collections::HashMap;
 
 pub(crate) fn get_whole_genome_intervals(
     aln: &str,
-    fasta: Option<&str>,
     window: usize,
 ) -> Result<Vec<Interval<String>>, PyErr> {
     // If no intervals, apply to whole genome based on header.
-    let mut aln =
-        AlignmentFile::new(aln, fasta).map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let mut aln = AlignmentFile::new(aln).map_err(|err| PyValueError::new_err(err.to_string()))?;
     let header = aln
         .header()
         .map_err(|err| PyValueError::new_err(err.to_string()))?;
@@ -43,7 +41,6 @@ pub(crate) fn get_whole_genome_intervals(
 
 pub(crate) fn get_aln_intervals(
     aln: &str,
-    fasta: Option<&str>,
     bed: Option<&str>,
     bp_wg_window: usize,
 ) -> Result<Vec<Interval<String>>, PyErr> {
@@ -53,7 +50,7 @@ pub(crate) fn get_aln_intervals(
         })
         .ok_or_else(|| PyValueError::new_err(format!("Unable to read intervals from {bed}")))?)
     } else {
-        Ok(get_whole_genome_intervals(aln, fasta, bp_wg_window)
+        Ok(get_whole_genome_intervals(aln, bp_wg_window)
             .map_err(|err| PyValueError::new_err(err.to_string()))?)
     }
 }

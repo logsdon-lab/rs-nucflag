@@ -47,6 +47,52 @@ fn split_at_ignored_intervals<'a>(
     }
 }
 
+fn get_itree_above_median(
+    lf_pileup: LazyFrame,
+    median_cov: u32,
+) -> eyre::Result<COITree<(), usize>> {
+    let df_above_median_cov = lf_pileup
+        .select([col("pos"), col("cov")])
+        .with_columns([
+            col("pos").min().alias("min_pos"),
+            col("pos").max().alias("max_pos"),
+            col("cov").gt_eq(lit(median_cov)).alias("above_median"),
+        ])
+        // +++----+++
+        // 0001111222
+        // 000----222
+        // 012----789
+        .filter(col("above_median"))
+        .with_column(col("above_median").rle_id())
+        .group_by([col("above_median")])
+        .agg([
+            col("pos").min().alias("start"),
+            col("pos").max().alias("end"),
+            col("min_pos").first(),
+            col("max_pos").first(),
+        ])
+        // Does the interval above the median contain the min or max position?
+        .filter(
+            col("min_pos")
+                .gt_eq(col("start"))
+                .and(col("min_pos").lt_eq(col("end")))
+                .or(col("max_pos")
+                    .gt_eq(col("start"))
+                    .and(col("max_pos").lt_eq(col("end")))),
+        )
+        .select([col("start"), col("end")])
+        .collect()?;
+    let itvs_above_median_cov: Vec<Interval<()>> = df_above_median_cov
+        .column("start")?
+        .u64()?
+        .iter()
+        .flatten()
+        .zip(df_above_median_cov.column("end")?.u64()?.iter().flatten())
+        .map(|(st, end)| Interval::new(st as i32, end as i32, ()))
+        .collect();
+    Ok(COITree::new(&itvs_above_median_cov))
+}
+
 fn ignore_boundary_misassemblies(
     itvs: &mut [Interval<(MisassemblyType, u32, u64)>],
     ctg: &str,
@@ -311,44 +357,34 @@ pub(crate) fn merge_misassemblies(
             let (mut agg_st, mut agg_end, mut mean_cov) = (i32::MAX, 0, 0);
             let mut agg_status = MisassemblyType::Null;
             let mut num_elems = 0;
-            let elems: Vec<(i32, i32, MisassemblyType, u32)> = group_elements
+            // Get min max of region.
+            for (st, end, status, cov) in group_elements
                 .map(|itv| (itv.first, itv.last, itv.metadata.0, itv.metadata.1))
                 .sorted_by(|a, b| a.0.cmp(&b.0))
-                .collect();
-            // Get min max of region.
-            for (st, end, status, cov) in elems.iter() {
-                agg_st = std::cmp::min(*st, agg_st);
-                agg_end = std::cmp::max(*end, agg_end);
-                agg_status = std::cmp::max(agg_status, *status);
-                mean_cov += *cov;
+            {
+                agg_st = std::cmp::min(st, agg_st);
+                agg_end = std::cmp::max(end, agg_end);
+                agg_status = std::cmp::max(agg_status, status);
+                mean_cov += cov;
                 num_elems += 1;
             }
             mean_cov /= num_elems;
 
-            // Change in coverage is greater than 1 stdev. Indicates that transition and should be ignored.
+            // At boundary of bin and is above median. Indicates that transition and should be ignored.
             //        v
             // 000000011111
             //    ____
             //  _/    \____
             // /           \
             let bin_stats = &bin_stats[&bin];
-            if agg_status == MisassemblyType::Collapse {
-                // Get runs of same signed changes.
-                let min_max_change = elems
-                    .windows(2)
-                    .map(|a| a[1].3 as f32 - a[0].3 as f32)
-                    .chunk_by(|a| a.is_sign_negative())
-                    .into_iter()
-                    .map(|(_, run)| run.sum::<f32>())
-                    .minmax();
-                let stdev = bin_stats.stdev.abs();
-                if let Some((min, max)) = min_max_change
-                    .into_option()
-                    .filter(|(min, max)| (min.abs() < stdev.abs()) || (max.abs()) < stdev.abs())
-                {
-                    log::debug!("Filtered out {agg_status:?}: {ctg}:{agg_st}-{agg_end} with coverage changes ({min},{max}) less than 1 stdev in bin {bin_stats:?}");
-                    agg_status = MisassemblyType::Null;
-                }
+            if agg_status == MisassemblyType::Collapse
+                && bin_stats
+                    .itree_above_median
+                    .query_count(agg_st, agg_end)
+                    .ge(&1)
+            {
+                log::debug!("Filtered out {agg_status:?}: {ctg}:{agg_st}-{agg_end} above median coverage at bin transition ({bin_stats:?})");
+                agg_status = MisassemblyType::Null;
             }
 
             minmax_reclassified_itvs_all.push(Interval::new(
@@ -517,6 +553,7 @@ pub(crate) fn classify_peaks(
             center: true,
             ..Default::default()
         };
+        let itree_above_median_cov = get_itree_above_median(lf_pileup.clone(), median_cov)?;
         let df_bin_stats = lf_pileup
             .clone()
             // Only use good regions for bin stats.
@@ -546,6 +583,7 @@ pub(crate) fn classify_peaks(
                 .value()
                 .try_extract()
                 .unwrap_or_default(),
+            itree_above_median: itree_above_median_cov,
         }
     };
     /*

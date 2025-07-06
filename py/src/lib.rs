@@ -30,14 +30,9 @@ pub struct PyNucFlagResult {
 
 /// Get interval regions from an alignment file or bed file.
 #[pyfunction]
-#[pyo3(signature = (aln, fasta = None, bed = None, window = 10_000_000))]
-fn get_regions(
-    aln: &str,
-    fasta: Option<&str>,
-    bed: Option<&str>,
-    window: usize,
-) -> PyResult<Vec<(i32, i32, String)>> {
-    Ok(get_aln_intervals(aln, fasta, bed, window)?
+#[pyo3(signature = (aln, bed = None, window = 10_000_000))]
+fn get_regions(aln: &str, bed: Option<&str>, window: usize) -> PyResult<Vec<(i32, i32, String)>> {
+    Ok(get_aln_intervals(aln, bed, window)?
         .into_iter()
         .map(|itv| (itv.first, itv.last, itv.metadata))
         .collect())
@@ -130,9 +125,7 @@ fn run_nucflag(
     // Set rayon threadpool
     _ = ThreadPoolBuilder::new().num_threads(threads).build_global();
 
-    let ctg_itvs: Vec<Interval<String>> =
-        get_aln_intervals(aln, fasta, bed, cfg.general.bp_wg_window)?;
-
+    let ctg_itvs: Vec<Interval<String>> = get_aln_intervals(aln, bed, cfg.general.bp_wg_window)?;
     let ignore_itvs: HashMap<String, COITree<String, usize>> = get_ignored_intervals(ignore_bed)?;
 
     // Parallelize by contig.

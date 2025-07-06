@@ -36,14 +36,14 @@ impl From<Preset> for Config {
             Preset::PacBioHiFi => Config::default(),
             Preset::OntR9 => Config {
                 mismatch: MismatchConfig {
-                    rolling_mean_window: Some(21),
+                    rolling_mean_window: Some(25),
                     ..Default::default()
                 },
                 cov: CoverageConfig {
                     // Dips tend to be less prominent due to avg length or read.
                     n_zscores_low: 1.0,
                     ratio_collapse: 1.5,
-                    ratio_misjoin: 0.34,
+                    ratio_misjoin: 0.2,
                     rolling_mean_window: Some(11),
                     ..Default::default()
                 },
@@ -63,7 +63,7 @@ impl From<Preset> for Config {
                 cov: CoverageConfig {
                     n_zscores_low: 1.0,
                     ratio_collapse: 1.5,
-                    ratio_misjoin: 0.34,
+                    ratio_misjoin: 0.2,
                     rolling_mean_window: Some(5),
                     ..Default::default()
                 },

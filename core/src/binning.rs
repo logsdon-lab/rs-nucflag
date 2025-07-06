@@ -1,7 +1,8 @@
 use core::str;
-use std::{collections::VecDeque, path::Path};
+use std::{collections::VecDeque, fmt::Debug, path::Path};
 
 use coitrees::{COITree, Interval, IntervalTree};
+use eyre::Context;
 use noodles::{
     core::{Position, Region},
     fasta,
@@ -11,11 +12,21 @@ use rs_moddotplot::{compute_group_seq_self_identity, compute_seq_self_identity};
 
 use crate::config::GroupByANIConfig;
 
-#[derive(Debug, Clone)]
 pub struct BinStats {
     pub num: u64,
     pub median: f32,
     pub stdev: f32,
+    pub itree_above_median: COITree<(), usize>,
+}
+
+impl Debug for BinStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BinStats")
+            .field("num", &self.num)
+            .field("median", &self.median)
+            .field("stdev", &self.stdev)
+            .finish()
+    }
 }
 
 macro_rules! get_median_cov {
@@ -33,7 +44,7 @@ macro_rules! get_median_cov {
 
 pub fn group_pileup_by_ani(
     mut df: DataFrame,
-    fasta: impl AsRef<Path>,
+    fasta: impl AsRef<Path> + Debug,
     itv: &Interval<String>,
     cfg: &GroupByANIConfig,
 ) -> eyre::Result<DataFrame> {
@@ -43,7 +54,9 @@ pub fn group_pileup_by_ani(
     let min_grp_size = cfg.min_grp_size;
     let min_ident = cfg.min_ident;
 
-    let mut reader_fasta = fasta::io::indexed_reader::Builder::default().build_from_path(fasta)?;
+    let mut reader_fasta = fasta::io::indexed_reader::Builder::default()
+        .build_from_path(&fasta)
+        .with_context(|| format!("Cannot read indexed fasta file. {fasta:?}"))?;
     let position = Position::new(st.try_into()?).unwrap()..=Position::new(end.try_into()?).unwrap();
     let region = Region::new(itv.metadata.clone(), position);
     let seq = reader_fasta.query(&region)?;
@@ -107,6 +120,7 @@ pub fn group_pileup_by_ani(
         itv_idents.len() + 1
     );
 
+    // TODO: Change to perc identity.
     // Add groups to pileup.
     // N's will cause offset so need to detect overlaps.
     let ident_groups: Vec<u64> = df

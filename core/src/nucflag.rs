@@ -111,7 +111,7 @@ fn nucflag_grp(
 ///
 /// # Arguments
 /// * `aln`: Input BAM/CRAM file path. Should be indexed.
-/// * `fasta`: Input BAM file path. Required with CRAM. Also used for region binning.
+/// * `fasta`: Input fasta file path. Used for region binning and repeat detection.
 /// * `itv`: Interval to check.
 /// * `ignore_itvs`: Intervals to ignore. NOTE: Interval's metadata is not checked.
 /// * `cfg`: Peak-calling configuration. See [`Preset`] for configuration based on sequencing data type.
@@ -132,7 +132,7 @@ where
     let ctg = itv.metadata.clone();
     let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
 
-    let mut aln = AlignmentFile::new(aln, fasta.clone())?;
+    let mut aln = AlignmentFile::new(aln)?;
     let pileup = aln.pileup(itv, cfg.indel.min_ins_size, cfg.indel.min_del_size)?;
 
     let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end, &cfg)?;
