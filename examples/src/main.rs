@@ -16,12 +16,13 @@ core/test/ending_scaffold/aln_1.fa \
 core/test/ending_scaffold/aln_1.bed \
 core/nucflag.toml \
 1
+hifi
 */
 fn cli_fasta() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
     assert!(
-        args.len() == 6,
-        "Usage: .{} <bam> <fasta> <bed> <cfg> <threads>",
+        args.len() == 7,
+        "Usage: .{} <bam> <fasta> <bed> <cfg> <threads> <preset>",
         args[0]
     );
 
@@ -33,7 +34,8 @@ fn cli_fasta() -> Result<(), Box<dyn Error>> {
         .get(5)
         .map(|arg| arg.parse::<usize>())
         .unwrap_or(Ok(1))?;
-    let cfg: Config = read_cfg(config, None)?;
+    let preset = args.get(6).filter(|p| p.as_str() != "none");
+    let cfg: Config = read_cfg(config, preset.map(|x| x.as_str()))?;
 
     // Set number of threads.
     ThreadPoolBuilder::new().num_threads(threads);

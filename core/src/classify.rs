@@ -62,8 +62,12 @@ fn get_itree_above_median(
         // 0001111222
         // 000----222
         // 012----789
-        .filter(col("above_median"))
         .with_column(col("above_median").rle_id())
+        .filter(
+            col("cov")
+                .gt_eq(lit(median_cov))
+                .over([col("above_median")]),
+        )
         .group_by([col("above_median")])
         .agg([
             col("pos").min().alias("start"),

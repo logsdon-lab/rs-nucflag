@@ -35,8 +35,8 @@ repos:
 -   repo: local
     hooks:
     -   id: test
-        name: Unittests
-        entry: cargo test --release -p rs-nucflag --lib
+        name: Tests
+        entry: cargo test --release -p rs-nucflag
         pass_filenames: false
         types: [file, rust]
         language: system

@@ -65,7 +65,7 @@
     "ignore_boundaries_2": {
         "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1.bam",
         "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1.bed",
-        "config": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1_ignore.toml",
+        "config": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1_ignored.toml",
         "fasta": "",
         "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/expected_ignored/haplotype1-0000007_130000000-132673537.png",
         "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/expected_ignored/aln_1.png",
@@ -125,13 +125,22 @@
         "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/standard/expected/aln_1.png",
         "additional_flags": []
     },
-    "ignore_false_collapse": {
+    "ignore_false_collapse_1": {
         "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_1.cram",
         "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_1.bed",
-        "config": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_1.config",
+        "config": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_1.toml",
         "fasta": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_1.fa",
-        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/expected/HG00513_chr7_haplotype1-0000002.png",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/expected/HG00513_chr7_haplotype1-0000002_59092026-66426276.png",
         "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/expected/aln_1.png",
-        "additional_flags": []
+        "additional_flags": ["--add_builtin_tracks", "mapq", "bin"]
+    },
+    "ignore_false_collapse_2": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_2.cram",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_2.bed",
+        "config": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_2.toml",
+        "fasta": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/input/aln_2.fa",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/expected/NA24385_chr10_haplotype1-0000009_38656716-42854115.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_false_collapse/expected/aln_2.png",
+        "additional_flags": ["--add_builtin_tracks", "mapq", "bin"]
     }
 }

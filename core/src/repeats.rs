@@ -41,7 +41,7 @@ pub struct RepeatSummary<'a> {
 ///
 /// # Example
 /// ```
-/// use nucflag::repeats::detect_largest_repeat;
+/// use rs_nucflag::repeats::detect_largest_repeat;
 ///
 /// let seq = "TTAGCAGCAGCCCG";
 /// let summary = detect_largest_repeat(seq);

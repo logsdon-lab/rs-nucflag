@@ -94,7 +94,7 @@ fn test_ending_scaffold() {
 fn test_ignore_low_cov_boundaries() {
     let indir = "test/ignore_boundaries/input";
     let expdir = "test/ignore_boundaries/expected";
-    for (case, suffix) in [("aln_1", "_ignore"), ("aln_1", "")] {
+    for (case, suffix) in [("aln_1", "_ignored"), ("aln_1", "")] {
         let aln = format!("{indir}/{case}.bam");
         let bed = format!("{indir}/{case}.bed");
         let cfg = format!("{indir}/{case}{suffix}.toml");
@@ -179,14 +179,13 @@ fn test_standard() {
 fn test_ignore_false_collapse() {
     let indir = "test/ignore_false_collapse/input";
     let expdir = "test/ignore_false_collapse/expected";
-    {
-        let case = "aln_1";
+    for case in ["aln_1", "aln_2"] {
         let aln = format!("{indir}/{case}.cram");
         let fa = format!("{indir}/{case}.fa");
         let cfg = format!("{indir}/{case}.toml");
         let bed = format!("{indir}/{case}.bed");
         let expected = format!("{expdir}/{case}.bed");
-        // check_output(&aln, &bed, None, None, None, Some(&expected));
+        // check_output(&aln, &bed, Some(&fa), Some(&cfg), None, Some(&expected));
         check_output(&aln, &bed, Some(&fa), Some(&cfg), Some(&expected), None)
     }
 }

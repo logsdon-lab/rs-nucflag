@@ -36,3 +36,7 @@ core/test/ignore_false_collapse/input/aln_1.cram filter=lfs diff=lfs merge=lfs -
 core/test/ignore_false_collapse/input/aln_1.cram.crai filter=lfs diff=lfs merge=lfs -text
 core/test/ignore_false_collapse/input/aln_1.fa filter=lfs diff=lfs merge=lfs -text
 core/test/ignore_false_collapse/input/aln_1.bed filter=lfs diff=lfs merge=lfs -text
+core/test/ignore_false_collapse/input/aln_2.fa filter=lfs diff=lfs merge=lfs -text
+core/test/ignore_false_collapse/input/aln_2.cram.crai filter=lfs diff=lfs merge=lfs -text
+core/test/ignore_false_collapse/input/aln_2.cram filter=lfs diff=lfs merge=lfs -text
+core/test/ignore_false_collapse/input/aln_2.bed filter=lfs diff=lfs merge=lfs -text

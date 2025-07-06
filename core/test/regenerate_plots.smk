@@ -3,7 +3,7 @@ import json
 from os.path import join
 
 
-with open("regenerate_plots.json", "rt") as fh:
+with open("/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/regenerate_plots.json", "rt") as fh:
     cases = json.load(fh)
 
 

@@ -51,7 +51,7 @@ pub fn write_itvs<'a, T: Debug + Clone + 'a>(
 /// # Examples
 /// BED3 record.
 /// ```
-/// use nucflag::io::read_bed;
+/// use rs_nucflag::io::read_bed;
 /// use coitrees::Interval;
 ///
 /// let records = read_bed(
@@ -61,7 +61,7 @@ pub fn write_itvs<'a, T: Debug + Clone + 'a>(
 /// ```
 /// BED4 record
 /// ```
-/// use nucflag::io::read_bed;
+/// use rs_nucflag::io::read_bed;
 /// use coitrees::Interval;
 ///
 /// let records = read_bed(

@@ -38,7 +38,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: -p rs-nucflag --lib
+          args: -p rs-nucflag --release
 
   fmt:
     name: Rustfmt
