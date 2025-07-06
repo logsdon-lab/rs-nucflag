@@ -138,16 +138,20 @@ where
     let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end, &cfg)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
 
-    let df_pileup_groups =
-        if let (Some(fasta), Some(cfg_grp_by_ani)) = (fasta.clone(), &cfg.group_by_ani) {
-            group_pileup_by_ani(df_raw_pileup, fasta, itv, cfg_grp_by_ani)?
-                .partition_by(["bin"], true)?
-        } else {
-            vec![df_raw_pileup
-                .lazy()
-                .with_column(lit(0).cast(DataType::UInt64).alias("bin"))
-                .collect()?]
-        };
+    let df_pileup_groups = if let (Some(fasta), Some(cfg_grp_by_ani)) = (
+        fasta.clone(),
+        &cfg.group_by_ani
+            .as_ref()
+            .filter(|cfg| cfg.window_size < (itv.last - itv.first) as usize),
+    ) {
+        group_pileup_by_ani(df_raw_pileup, fasta, itv, cfg_grp_by_ani)?
+            .partition_by(["bin"], true)?
+    } else {
+        vec![df_raw_pileup
+            .lazy()
+            .with_column(lit(0).cast(DataType::UInt64).alias("bin"))
+            .collect()?]
+    };
 
     let (dfs_itvs, (dfs_pileup, bin_stats)): (Vec<LazyFrame>, (Vec<LazyFrame>, Vec<BinStats>)) =
         df_pileup_groups

@@ -1,0 +1,128 @@
+{
+    "dupes_1": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/input/aln_1.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/input/aln_1.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/expected/NA19240_chr7_haplotype1-0000022_58953186-63997585.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/expected/aln_1.png",
+        "additional_flags": []
+    },
+    "dupes_2": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/input/aln_2.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/input/aln_2.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/expected/NA19240_chr16_haplotype2-0000084_35102744-37555231.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/expected/aln_2.png",
+        "additional_flags": []
+    },
+    "dupes_3": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/input/aln_3.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/input/aln_3.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/expected/NA19384_chr8_haplotype2-0000113_42754888-48128437.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/dupes/expected/aln_3.png",
+        "additional_flags": []
+    },
+    "ending_scaffold": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ending_scaffold/input/aln_1.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ending_scaffold/input/aln_1.bed",
+        "config": "",
+        "fasta": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ending_scaffold/input/aln_1.fa",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ending_scaffold/expected/HG00171_chrX_haplotype2-0000138_55480684-60218583.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ending_scaffold/expected/aln_1.png",
+        "additional_flags": ["--add_builtin_tracks", "mapq", "bin"]
+    },
+    "het": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/het/input/aln_1.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/het/input/aln_1.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/het/expected/HG00733_chr22_haplotype2-0000084_6686558-10252857.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/het/expected/aln_1.png",
+        "additional_flags": []
+    },
+    "hsat": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/hsat/input/aln_1.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/hsat/input/aln_1.bed",
+        "config": "",
+        "fasta": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/hsat/input/aln_1.fa",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/hsat/expected/NA18534_chr4_haplotype2-0000075_49478052-53940451.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/hsat/expected/aln_1.png",
+        "additional_flags": ["--add_builtin_tracks", "mapq", "bin"]
+    },
+    "ignore_boundaries_1": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1.bed",
+        "config": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1.toml",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/expected/haplotype1-0000007_130000000-132673537.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/expected/aln_1.png",
+        "additional_flags": []
+    },
+    "ignore_boundaries_2": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1.bed",
+        "config": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/input/aln_1_ignore.toml",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/expected_ignored/haplotype1-0000007_130000000-132673537.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/ignore_boundaries/expected_ignored/aln_1.png",
+        "additional_flags": []
+    },
+    "minor_collapse_1": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/input/aln_1.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/input/aln_1.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/expected/HG00171_chr13_haplotype2-0000166_4596760-8266002.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/expected/aln_1.png",
+        "additional_flags": []
+    },
+    "minor_collapse_2": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/input/aln_2.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/input/aln_2.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/expected/HG00514_chr19_haplotype2-0000081_23481458-30574357.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/expected/aln_2.png",
+        "additional_flags": []
+    },
+    "minor_collapse_3": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/input/aln_3.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/input/aln_3.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/expected/NA19036_chr10_haplotype2-0000059_38557200-42638442.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/expected/aln_3.png",
+        "additional_flags": []
+    },
+    "minor_collapse_4": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/input/aln_4.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/input/aln_4.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/expected/NA24385_chr7_haplotype1-0000012_58981405-63957875.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/minor_collapse/expected/aln_4.png",
+        "additional_flags": []
+    },
+    "misjoin": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/misjoin/input/aln_1.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/misjoin/input/aln_1.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/misjoin/expected/HG00096_chr18_haplotype2-0000115_14878732-20545042.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/misjoin/expected/aln_1.png",
+        "additional_flags": []
+    },
+    "standard": {
+        "bam": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/standard/input/aln_1.bam",
+        "bed": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/standard/input/aln_1.bed",
+        "config": "",
+        "fasta": "",
+        "output_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/standard/expected/haplotype2-0000133_3021508-8691473.png",
+        "final_png": "/project/logsdon_shared/projects/Keith/rs-nucflag/core/test/standard/expected/aln_1.png",
+        "additional_flags": []
+    }
+}

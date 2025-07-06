@@ -100,8 +100,7 @@ pub fn get_aligned_pairs(
             // Ignore small indels.
             Kind::Insertion | Kind::SoftClip => {
                 if op == Kind::Insertion && l < min_ins_size {
-                    for i in pos..(pos + l) {
-                        pairs.push((qpos, i, Kind::Match));
+                    for _ in pos..(pos + l) {
                         qpos += 1
                     }
                 } else {

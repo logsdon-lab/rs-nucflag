@@ -98,7 +98,7 @@ fn test_ignore_low_cov_boundaries() {
         let aln = format!("{indir}/{case}.bam");
         let bed = format!("{indir}/{case}.bed");
         let cfg = format!("{indir}/{case}{suffix}.toml");
-        let expected = format!("{expdir}/{case}{suffix}.bed");
+        let expected = format!("{expdir}{suffix}/{case}.bed");
         // check_output(&aln, &bed, None, Some(&cfg), None, Some(&expected));
         check_output(&aln, &bed, None, Some(&cfg), Some(&expected), None)
     }
