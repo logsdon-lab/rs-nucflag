@@ -133,7 +133,12 @@ where
     let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
 
     let mut aln = AlignmentFile::new(aln)?;
-    let pileup = aln.pileup(itv, cfg.indel.min_ins_size, cfg.indel.min_del_size)?;
+    let pileup = aln.pileup(
+        itv,
+        cfg.indel.min_ins_size,
+        cfg.indel.min_del_size,
+        cfg.general.bp_min_aln_length,
+    )?;
 
     let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end, &cfg)?;
     log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");

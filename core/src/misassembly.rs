@@ -12,7 +12,7 @@ pub enum MisassemblyType {
     Collapse,
     Misjoin,
     FalseDupe,
-    Repeat(Repeat),
+    RepeatError(Repeat),
     Null,
 }
 
@@ -25,7 +25,7 @@ impl MisassemblyType {
             | MisassemblyType::Misjoin => true,
             MisassemblyType::Indel
             | MisassemblyType::FalseDupe
-            | MisassemblyType::Repeat(_)
+            | MisassemblyType::RepeatError(_)
             | MisassemblyType::Null => false,
         }
     }
@@ -52,13 +52,19 @@ impl MisassemblyType {
             MisassemblyType::FalseDupe => "0,0,255",
             // Scaffold
             // #808080
-            MisassemblyType::Repeat(Repeat::Scaffold) => "128,128,128",
+            MisassemblyType::RepeatError(Repeat::Scaffold) => "128,128,128",
             // Yellow
             // #ECEC00
-            MisassemblyType::Repeat(Repeat::Homopolymer) => "236,236,0",
+            MisassemblyType::RepeatError(Repeat::Homopolymer) => "236,236,0",
+            // Prussian Blue
+            // #003153
+            MisassemblyType::RepeatError(Repeat::Dinucleotide) => "0,49,83",
             // Dark green
             // #336600
-            MisassemblyType::Repeat(Repeat::Repeat) => "51,102,0",
+            MisassemblyType::RepeatError(Repeat::Simple) => "51,102,0",
+            // Dirt
+            // #9b7653
+            MisassemblyType::RepeatError(Repeat::Other) => "155,118,83",
             MisassemblyType::Null => "0,0,0",
         }
     }
@@ -73,9 +79,11 @@ impl From<MisassemblyType> for &'static str {
             MisassemblyType::Collapse => "collapse",
             MisassemblyType::Misjoin => "misjoin",
             MisassemblyType::FalseDupe => "false_dupe",
-            MisassemblyType::Repeat(Repeat::Scaffold) => "scaffold",
-            MisassemblyType::Repeat(Repeat::Homopolymer) => "homopolymer",
-            MisassemblyType::Repeat(Repeat::Repeat) => "repeat",
+            MisassemblyType::RepeatError(Repeat::Scaffold) => "scaffold",
+            MisassemblyType::RepeatError(Repeat::Homopolymer) => "homopolymer",
+            MisassemblyType::RepeatError(Repeat::Dinucleotide) => "dinucleotide",
+            MisassemblyType::RepeatError(Repeat::Simple) => "simple_repeat",
+            MisassemblyType::RepeatError(Repeat::Other) => "other_repeat",
             MisassemblyType::Null => "null",
         }
     }
@@ -92,9 +100,11 @@ impl FromStr for MisassemblyType {
             "misjoin" => MisassemblyType::Misjoin,
             "collapse" => MisassemblyType::Collapse,
             "false_dupe" => MisassemblyType::FalseDupe,
-            "scaffold" => MisassemblyType::Repeat(Repeat::Scaffold),
-            "homopolymer" => MisassemblyType::Repeat(Repeat::Homopolymer),
-            "repeat" => MisassemblyType::Repeat(Repeat::Repeat),
+            "scaffold" => MisassemblyType::RepeatError(Repeat::Scaffold),
+            "homopolymer" => MisassemblyType::RepeatError(Repeat::Homopolymer),
+            "dinucleotide" => MisassemblyType::RepeatError(Repeat::Dinucleotide),
+            "simple_repeat" => MisassemblyType::RepeatError(Repeat::Simple),
+            "other_repeat" => MisassemblyType::RepeatError(Repeat::Other),
             _ => MisassemblyType::Null,
         })
     }
@@ -135,12 +145,16 @@ impl Ord for MisassemblyType {
             // Misjoin always takes priority.
             (MisassemblyType::Misjoin, _) => Ordering::Greater,
             // Never merge repeats
-            (_, MisassemblyType::Repeat(Repeat::Scaffold)) => Ordering::Less,
-            (_, MisassemblyType::Repeat(Repeat::Homopolymer)) => Ordering::Less,
-            (_, MisassemblyType::Repeat(Repeat::Repeat)) => Ordering::Less,
-            (MisassemblyType::Repeat(Repeat::Scaffold), _) => Ordering::Less,
-            (MisassemblyType::Repeat(Repeat::Homopolymer), _) => Ordering::Less,
-            (MisassemblyType::Repeat(Repeat::Repeat), _) => Ordering::Less,
+            (_, MisassemblyType::RepeatError(Repeat::Scaffold)) => Ordering::Less,
+            (_, MisassemblyType::RepeatError(Repeat::Homopolymer)) => Ordering::Less,
+            (_, MisassemblyType::RepeatError(Repeat::Dinucleotide)) => Ordering::Less,
+            (_, MisassemblyType::RepeatError(Repeat::Simple)) => Ordering::Less,
+            (_, MisassemblyType::RepeatError(Repeat::Other)) => Ordering::Less,
+            (MisassemblyType::RepeatError(Repeat::Scaffold), _) => Ordering::Less,
+            (MisassemblyType::RepeatError(Repeat::Homopolymer), _) => Ordering::Less,
+            (MisassemblyType::RepeatError(Repeat::Dinucleotide), _) => Ordering::Less,
+            (MisassemblyType::RepeatError(Repeat::Simple), _) => Ordering::Less,
+            (MisassemblyType::RepeatError(Repeat::Other), _) => Ordering::Less,
             // Null/good always less
             (MisassemblyType::Null, _) => Ordering::Less,
         }

@@ -47,12 +47,15 @@ impl Config {
     /// Merge two config structs take self as base. Only used for optional config sections.
     pub(crate) fn merge(self, other: Config) -> Self {
         Self {
-            general: self.general,
+            general: GeneralConfig {
+                bp_min_aln_length: other.general.bp_min_aln_length,
+                ..self.general
+            },
             cov: CoverageConfig {
+                n_zscores_high: other.cov.n_zscores_high,
                 n_zscores_low: other.cov.n_zscores_low,
                 rolling_mean_window: other.cov.rolling_mean_window,
                 ratio_collapse: other.cov.ratio_collapse,
-                ratio_misjoin: other.cov.ratio_misjoin,
                 ..self.cov
             },
             mismatch: MismatchConfig {
@@ -84,7 +87,9 @@ pub struct MinimumSizeConfig {
     pub softclip: usize,
     pub indel: usize,
     pub homopolymer: usize,
-    pub repeat: usize,
+    pub dinucleotide: usize,
+    pub simple_repeat: usize,
+    pub other_repeat: usize,
     pub scaffold: usize,
 }
 
@@ -101,15 +106,23 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<MisassemblyType, u64> {
             (MisassemblyType::Misjoin, cfg.misjoin.try_into()?),
             (MisassemblyType::SoftClip, cfg.softclip.try_into()?),
             (
-                MisassemblyType::Repeat(Repeat::Homopolymer),
+                MisassemblyType::RepeatError(Repeat::Homopolymer),
                 cfg.homopolymer.try_into()?,
             ),
             (
-                MisassemblyType::Repeat(Repeat::Repeat),
-                cfg.repeat.try_into()?,
+                MisassemblyType::RepeatError(Repeat::Dinucleotide),
+                cfg.dinucleotide.try_into()?,
             ),
             (
-                MisassemblyType::Repeat(Repeat::Scaffold),
+                MisassemblyType::RepeatError(Repeat::Simple),
+                cfg.simple_repeat.try_into()?,
+            ),
+            (
+                MisassemblyType::RepeatError(Repeat::Other),
+                cfg.other_repeat.try_into()?,
+            ),
+            (
+                MisassemblyType::RepeatError(Repeat::Scaffold),
                 cfg.scaffold.try_into()?,
             ),
         ]))
@@ -127,7 +140,9 @@ impl Default for MinimumSizeConfig {
             softclip: 1,
             indel: 1,
             homopolymer: 1,
-            repeat: 1,
+            simple_repeat: 1,
+            dinucleotide: 1,
+            other_repeat: 1,
             scaffold: 1,
         }
     }
@@ -164,6 +179,8 @@ pub struct GeneralConfig {
     pub bp_merge: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
     pub bp_wg_window: usize,
+    /// Minimum alignment length to include in pileup.
+    pub bp_min_aln_length: usize,
     /// Filter misassemblies below median coverage on contig boundaries.
     /// * If fasta provided, defaults to boundaries of each contig.
     /// * With no fasta, defaults to boundaries of queried region.
@@ -176,6 +193,7 @@ impl Default for GeneralConfig {
             log_level: Level::Info,
             bp_merge: 5_000,
             bp_wg_window: 10_000_000,
+            bp_min_aln_length: 1,
             ignore_boundaries: false,
         }
     }
@@ -188,8 +206,6 @@ pub struct CoverageConfig {
     pub n_zscores_high: f32,
     /// Number of z-scores below the median to be considered a misassembly.
     pub n_zscores_low: f32,
-    /// Minimum coverage ratio required for a misjoin.
-    pub ratio_misjoin: f32,
     /// Minimum coverage ratio required for a collapse.
     pub ratio_collapse: f32,
     /// Minimum coverage ratio required for a false dupe.
@@ -206,7 +222,6 @@ impl Default for CoverageConfig {
             n_zscores_high: 3.5,
             n_zscores_low: 3.5,
             ratio_collapse: 1.5,
-            ratio_misjoin: 0.1,
             ratio_false_dupe: 0.5,
             rolling_mean_window: None,
             baseline: None,

@@ -12,8 +12,12 @@ pub enum Repeat {
     Scaffold,
     /// Homopolymers with continuous run of some characters. ex. `AAAAA`
     Homopolymer,
-    /// Repeat of some size. ex. `AGCAGCAGC`
-    Repeat,
+    /// Repeat of two bases. ex. `ATATAT`
+    Dinucleotide,
+    /// SSRs. Between 3-6 bases repeated. Does not include homopolymers and dinucleotide repeats.
+    Simple,
+    /// Repeat of some size.
+    Other,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,6 +69,7 @@ pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary> {
     let positions = sfx_tbl.positions(largest_repeat);
     let mut positions_iter = positions.iter().sorted().peekable();
     let mut total_length = 0;
+    let mut differences = vec![];
     loop {
         let Some(pos) = positions_iter.next() else {
             break;
@@ -76,8 +81,14 @@ pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary> {
         let diff = *next_pos - pos;
         match diff.cmp(&largest_sfx_length) {
             // Some overlap if diff between two adjacent positions less than the largest sfx length.
-            Ordering::Less => total_length += diff,
-            Ordering::Equal => total_length += largest_sfx_length,
+            Ordering::Less => {
+                differences.push(diff);
+                total_length += diff;
+            }
+            Ordering::Equal => {
+                differences.push(diff);
+                total_length += largest_sfx_length
+            }
             // But if diff is larger, indicates suffixes are not adjacent and should be ignored in total length calculation.
             Ordering::Greater => {
                 continue;
@@ -88,17 +99,25 @@ pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary> {
     if total_length == largest_sfx_length {
         return None;
     }
-
     let prop = total_length as f32 / seq.len() as f32;
     let repeat = positions.first().and_then(|p| {
         let idx = *p as usize;
         seq.get(idx..idx + largest_sfx_length as usize)
     })?;
-    // Check total unique characters.
-    let repeat_type = match repeat.chars().sorted().dedup().count() {
+    // Get mode of differences of positions of tandem repeat. This is the smallest repeat length and the base monomer.
+    let repeat_diff_mode = differences
+        .into_iter()
+        .counts()
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1))
+        .map(|m| m.0)?;
+    let repeat_type = match repeat_diff_mode {
         0 => unreachable!(),
         1 => Repeat::Homopolymer,
-        2.. => Repeat::Repeat,
+        2 => Repeat::Dinucleotide,
+        // Dinucleotide and homopolymer are a subset of SSRs but useful to delineate as a common error in assembly.
+        3..7 => Repeat::Simple,
+        7.. => Repeat::Other,
     };
 
     Some(RepeatSummary {
@@ -107,7 +126,7 @@ pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary> {
         } else {
             repeat_type
         },
-        sequence: repeat,
+        sequence: &repeat[0..repeat_diff_mode as usize],
         original_sequence: seq,
         prop,
     })
@@ -120,7 +139,9 @@ impl FromStr for Repeat {
         Ok(match s {
             "scaffold" => Repeat::Scaffold,
             "homopolymer" => Repeat::Homopolymer,
-            "repeat" => Repeat::Repeat,
+            "dinucleotide_repeat" | "dinucleotide" => Repeat::Dinucleotide,
+            "simple_repeat" | "simple" => Repeat::Simple,
+            "other_repeat" | "other" => Repeat::Other,
             _ => bail!("Invalid repeat type, {s}."),
         })
     }
@@ -131,7 +152,9 @@ impl Display for Repeat {
         match self {
             Repeat::Scaffold => write!(f, "scaffold"),
             Repeat::Homopolymer => write!(f, "homopolymer"),
-            Repeat::Repeat => write!(f, "repeat"),
+            Repeat::Dinucleotide => write!(f, "dinucleotide"),
+            Repeat::Simple => write!(f, "simple_repeat"),
+            Repeat::Other => write!(f, "other_repeat"),
         }
     }
 }
@@ -146,8 +169,8 @@ mod test {
         let res = detect_largest_repeat(seq);
         assert_eq!(
             Some(RepeatSummary {
-                repeat: Repeat::Repeat,
-                sequence: "AGCAGC",
+                repeat: Repeat::Simple,
+                sequence: "AGC",
                 prop: 0.64285713,
                 original_sequence: "TTAGCAGCAGCCCG",
             },),
@@ -161,8 +184,8 @@ mod test {
         let res = detect_largest_repeat(seq);
         assert_eq!(
             Some(RepeatSummary {
-                repeat: Repeat::Repeat,
-                sequence: "ATATATAT",
+                repeat: Repeat::Dinucleotide,
+                sequence: "AT",
                 prop: 0.90909094,
                 original_sequence: "ATATATATATC",
             },),
@@ -183,7 +206,7 @@ mod test {
         let res = detect_largest_repeat(seq);
         assert_eq!(
             Some(RepeatSummary {
-                repeat: Repeat::Repeat,
+                repeat: Repeat::Dinucleotide,
                 sequence: "CA",
                 prop: 0.30769232,
                 // 4 out of 13 characters.
@@ -200,7 +223,7 @@ mod test {
         assert_eq!(
             Some(RepeatSummary {
                 repeat: Repeat::Homopolymer,
-                sequence: "AAAAAAAAA",
+                sequence: "A",
                 prop: 0.71428573,
                 original_sequence: "AAAAAAAAAACCCC",
             },),
@@ -215,7 +238,7 @@ mod test {
         assert_eq!(
             Some(RepeatSummary {
                 repeat: Repeat::Scaffold,
-                sequence: "NNNNN",
+                sequence: "N",
                 prop: 0.75,
                 original_sequence: "GNNNNNNA",
             },),

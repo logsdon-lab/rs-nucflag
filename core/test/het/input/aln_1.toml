@@ -2,6 +2,7 @@
 log_level = "info"
 bp_merge = 5_000
 bp_wg_window = 10_000_000
+bp_min_aln_length = 0
 ignore_boundaries = false
 
 [cov]

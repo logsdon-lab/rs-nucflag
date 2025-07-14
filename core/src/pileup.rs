@@ -195,6 +195,7 @@ impl AlignmentFile {
         itv: &Interval<String>,
         min_ins_size: usize,
         min_del_size: usize,
+        min_aln_length: usize,
     ) -> eyre::Result<PileupSummary> {
         let st = TryInto::<usize>::try_into(itv.first)?.clamp(1, usize::MAX);
         let end: usize = itv.last.try_into()?;
@@ -204,7 +205,6 @@ impl AlignmentFile {
             &*itv.metadata,
             Position::try_from(st)?..=Position::try_from(end)?,
         );
-
         log::info!("Generating pileup over {}:{st}-{end}.", region.name());
 
         let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length.try_into()?];
@@ -215,30 +215,38 @@ impl AlignmentFile {
                 let header: noodles::sam::Header = indexed_reader.read_header()?;
                 let query: cram::io::reader::Query<'_, File> =
                     indexed_reader.query(&header, &region)?;
-                for read in query.into_iter().flatten() {
-                    let cg: &noodles::sam::alignment::record_buf::Cigar = read.cigar();
+                for rec in query
+                    .into_iter()
+                    .flatten()
+                    .filter(|aln| aln.sequence().len() > min_aln_length)
+                {
+                    let cg: &noodles::sam::alignment::record_buf::Cigar = rec.cigar();
                     let aln_pairs = get_aligned_pairs(
                         cg.iter().flatten().map(|op| (op.kind(), op.len())),
-                        read.alignment_start().unwrap().get(),
+                        rec.alignment_start().unwrap().get(),
                         min_ins_size,
                         min_del_size,
                     )?;
-                    pileup!(read, aln_pairs, st, end, pileup_infos)
+                    pileup!(rec, aln_pairs, st, end, pileup_infos)
                 }
             }
             AlignmentFile::Bam(indexed_reader) => {
                 let header: noodles::sam::Header = indexed_reader.read_header()?;
                 let query: bam::io::reader::Query<'_, bgzf::Reader<File>> =
                     indexed_reader.query(&header, &region)?;
-                for read in query.into_iter().flatten() {
-                    let cg: bam::record::Cigar<'_> = read.cigar();
+                for rec in query
+                    .into_iter()
+                    .flatten()
+                    .filter(|aln| aln.sequence().len() > min_aln_length)
+                {
+                    let cg: bam::record::Cigar<'_> = rec.cigar();
                     let aln_pairs = get_aligned_pairs(
                         cg.iter().flatten().map(|op| (op.kind(), op.len())),
-                        read.alignment_start().unwrap()?.get(),
+                        rec.alignment_start().unwrap()?.get(),
                         min_ins_size,
                         min_del_size,
                     )?;
-                    pileup!(read, aln_pairs, st, end, pileup_infos)
+                    pileup!(rec, aln_pairs, st, end, pileup_infos)
                 }
             }
         }
@@ -331,7 +339,7 @@ mod test {
             9667240,
             "K1463_2281_chr15_contig-0000423".to_owned(),
         );
-        let res = bam.pileup(&itv, 1, 1).unwrap();
+        let res = bam.pileup(&itv, 1, 1, 0).unwrap();
         assert_eq!(
             res,
             PileupSummary {
@@ -390,7 +398,7 @@ mod test {
             9667240,
             "K1463_2281_chr15_contig-0000423".to_owned(),
         );
-        let res = bam.pileup(&itv, 1, 1).unwrap();
+        let res = bam.pileup(&itv, 1, 1, 0).unwrap();
 
         let config = Config::default();
         let df_pileup =

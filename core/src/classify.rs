@@ -307,10 +307,10 @@ pub(crate) fn merge_misassemblies(
                     log::debug!("Detected repeat at {ctg}:{st}-{end}: {rpt:?}");
                     // If any number of N's is scaffold.
                     if rpt.repeat == Repeat::Scaffold {
-                        Some(MisassemblyType::Repeat(rpt.repeat))
+                        Some(MisassemblyType::RepeatError(rpt.repeat))
                     } else {
                         (rpt.prop > cfg_rpt.ratio_repeat)
-                            .then_some(MisassemblyType::Repeat(rpt.repeat))
+                            .then_some(MisassemblyType::RepeatError(rpt.repeat))
                     }
                 })
                 .unwrap_or(status)
@@ -351,7 +351,7 @@ pub(crate) fn merge_misassemblies(
     }
 
     // Get minimum and maximum positions of sorted, grouped intervals.
-    // Filter collapses based on calculate derivative within misassembled regions
+    // Filter collapses based on bin boundaries.
     let mut minmax_reclassified_itvs_all = vec![];
     for ((is_mergeable, bin), group_elements) in &reclassified_itvs_all
         .into_iter()
@@ -457,7 +457,7 @@ pub(crate) fn merge_misassemblies(
         .agg([
             col("st").min(),
             col("end").max(),
-            col("cov").median(),
+            col("cov").median().cast(DataType::UInt32),
             col("status").first(),
         ])
         .sort(["st"], Default::default())
@@ -480,7 +480,6 @@ pub(crate) fn classify_peaks(
 ) -> eyre::Result<(DataFrame, DataFrame, BinStats)> {
     let thr_false_dupe = (cfg.cov.ratio_false_dupe * median_cov as f32).floor();
     let thr_collapse = (cfg.cov.ratio_collapse * median_cov as f32).floor();
-    let thr_misjoin = (cfg.cov.ratio_misjoin * median_cov as f32).floor();
 
     let lf_pileup = lf_pileup
         .with_column(
@@ -517,13 +516,8 @@ pub(crate) fn classify_peaks(
             )
             .then(lit("collapse"))
             // misjoin
-            // Regions with zero coverage or drop in coverage and mapq.
-            .when(
-                col("cov").eq(lit(0)).or(col("cov_peak")
-                    .eq(lit("low"))
-                    .and(col("mapq_peak").eq(lit("low")))
-                    .and(col("cov").lt_eq(thr_misjoin))),
-            )
+            // Regions with zero coverage.
+            .when(col("cov").eq(lit(0)))
             .then(lit("misjoin"))
             // false_dupe
             // Region with half of the expected coverage and a maximum mapq of zero due to multiple primary mappings.
@@ -580,7 +574,8 @@ pub(crate) fn classify_peaks(
                 .column("cov_median")?
                 .median_reduce()?
                 .value()
-                .try_extract()?,
+                .try_extract()
+                .unwrap_or_default(),
             stdev: df_bin_stats
                 .column("cov_stdev")?
                 .median_reduce()?
