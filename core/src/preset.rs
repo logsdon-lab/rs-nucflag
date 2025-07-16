@@ -71,11 +71,11 @@ impl From<Preset> for Config {
                     n_zscores_high: 4.0,
                     n_zscores_low: 1.0,
                     ratio_collapse: 1.5,
-                    rolling_mean_window: Some(5),
+                    rolling_mean_window: Some(3),
                     ..Default::default()
                 },
                 mismatch: MismatchConfig {
-                    rolling_mean_window: Some(15),
+                    rolling_mean_window: Some(3),
                     ..Default::default()
                 },
                 indel: IndelConfig {

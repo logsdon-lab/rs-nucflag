@@ -220,7 +220,7 @@ impl Default for CoverageConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.5,
-            n_zscores_low: 3.5,
+            n_zscores_low: 2.0,
             ratio_collapse: 1.5,
             ratio_false_dupe: 0.5,
             rolling_mean_window: None,
@@ -262,7 +262,7 @@ impl Default for MismatchConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.5,
-            ratio_het: 0.1,
+            ratio_het: 0.2,
             rolling_mean_window: None,
         }
     }
@@ -286,11 +286,11 @@ pub struct IndelConfig {
 impl Default for IndelConfig {
     fn default() -> Self {
         Self {
-            n_zscores_high: 5.0,
-            ratio_indel: 0.2,
+            n_zscores_high: 2.0,
+            ratio_indel: 0.5,
             min_ins_size: 2,
             min_del_size: 2,
-            rolling_mean_window: Some(3),
+            rolling_mean_window: None,
         }
     }
 }

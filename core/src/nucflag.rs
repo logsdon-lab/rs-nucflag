@@ -39,7 +39,8 @@ fn nucflag_grp(
         cfg.mismatch.n_zscores_high,
         cfg.mismatch.n_zscores_high,
         true,
-    )?;
+    )?
+    .drop(["mismatch"]);
     // Detect indel peaks.
     let lf_indel_peaks = find_peaks(
         df_pileup.select(["pos", "indel"])?,
@@ -47,7 +48,8 @@ fn nucflag_grp(
         cfg.indel.n_zscores_high,
         cfg.indel.n_zscores_high,
         true,
-    )?;
+    )?
+    .drop(["indel"]);
     // Detect softclip peaks.
     let lf_softclip_peaks = find_peaks(
         df_pileup.select(["pos", "softclip"])?,
@@ -55,7 +57,9 @@ fn nucflag_grp(
         cfg.softclip.n_zscores_high,
         cfg.softclip.n_zscores_high,
         true,
-    )?;
+    )?
+    .drop(["softclip"]);
+
     // Detect mapq dips.
     let lf_mapq_dips = find_peaks(
         df_pileup.select(["pos", "mapq"])?,
@@ -72,21 +76,18 @@ fn nucflag_grp(
             [col("pos")],
             JoinArgs::new(JoinType::Left),
         )
-        .with_column(col("indel_peak").fill_null(lit("null")))
         .join(
             lf_mismatch_peaks,
             [col("pos")],
             [col("pos")],
             JoinArgs::new(JoinType::Left),
         )
-        .with_column(col("mismatch_peak").fill_null(lit("null")))
         .join(
             lf_softclip_peaks,
             [col("pos")],
             [col("pos")],
             JoinArgs::new(JoinType::Left),
         )
-        .with_column(col("softclip_peak").fill_null(lit("null")))
         .join(
             lf_mapq_dips,
             [col("pos")],
@@ -95,7 +96,7 @@ fn nucflag_grp(
         )
         .join(
             df_pileup
-                .select(["pos", "mapq_max", "indel", "softclip", "bin"])?
+                .select(["pos", "mapq_max", "mismatch", "indel", "softclip", "bin"])?
                 .lazy(),
             [col("pos")],
             [col("pos")],

@@ -38,7 +38,7 @@
     "het": {
         "bam": "het/input/aln_1.bam",
         "bed": "het/input/aln_1.bed",
-        "config": "",
+        "config": "het/input/aln_1.toml",
         "fasta": "",
         "output_png": "het/expected/HG00733_chr22_haplotype2-0000084_6686558-10252857.png",
         "final_png": "het/expected/aln_1.png",
@@ -107,13 +107,22 @@
         "final_png": "minor_collapse/expected/aln_4.png",
         "additional_flags": []
     },
-    "misjoin": {
+    "misjoin_1": {
         "bam": "misjoin/input/aln_1.bam",
         "bed": "misjoin/input/aln_1.bed",
         "config": "",
         "fasta": "",
         "output_png": "misjoin/expected/HG00096_chr18_haplotype2-0000115_14878732-20545042.png",
         "final_png": "misjoin/expected/aln_1.png",
+        "additional_flags": []
+    },
+   "misjoin_2": {
+        "bam": "misjoin/input/aln_2.bam",
+        "bed": "misjoin/input/aln_2.bed",
+        "config": "misjoin/input/aln_2.toml",
+        "fasta": "",
+        "output_png": "misjoin/expected/chr1_MATERNAL_1-10000000.png",
+        "final_png": "misjoin/expected/aln_2.png",
         "additional_flags": []
     },
     "standard": {

@@ -406,13 +406,13 @@ mod test {
         assert_eq!(
             df_pileup,
             df!(
-                "pos" => [9667238, 9667239, 9667240],
-                "cov" => [41;3],
-                "mismatch" => [0; 3],
-                "mapq_max" => [60; 3],
-                "mapq" => [45; 3],
-                "indel" => [20.0, 26.0, 19.0],
-                "softclip" => [0; 3],
+                "pos" => [9667238u64, 9667239u64, 9667240u64],
+                "cov" => [41u32;3],
+                "mismatch" => [0u32; 3],
+                "mapq_max" => [60u8; 3],
+                "mapq" => [45u8; 3],
+                "indel" => [40u32, 0u32, 38u32],
+                "softclip" => [0u32; 3],
             )
             .unwrap()
         );

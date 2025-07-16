@@ -516,8 +516,12 @@ pub(crate) fn classify_peaks(
             )
             .then(lit("collapse"))
             // misjoin
-            // Regions with zero coverage.
-            .when(col("cov").eq(lit(0)))
+            // Regions with zero coverage or drop in coverage and majority of bases are softclipped or indels.
+            .when(
+                col("cov").eq(lit(0)).or(col("cov_peak")
+                    .eq(lit("low"))
+                    .and(((col("indel") + col("softclip")) / col("cov")).gt(lit(0.5)))),
+            )
             .then(lit("misjoin"))
             // false_dupe
             // Region with half of the expected coverage and a maximum mapq of zero due to multiple primary mappings.
