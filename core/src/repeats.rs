@@ -50,7 +50,7 @@ pub struct RepeatSummary<'a> {
 /// let seq = "TTAGCAGCAGCCCG";
 /// let summary = detect_largest_repeat(seq);
 /// ```
-pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary> {
+pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary<'_>> {
     if seq.is_empty() {
         return None;
     }
