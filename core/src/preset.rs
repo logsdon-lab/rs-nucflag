@@ -61,7 +61,7 @@ impl From<Preset> for Config {
                     ..Default::default()
                 },
                 minimum_size: Some(MinimumSizeConfig {
-                    false_dupe: 2,
+                    false_dup: 2,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -85,7 +85,7 @@ impl From<Preset> for Config {
                     ..Default::default()
                 },
                 minimum_size: Some(MinimumSizeConfig {
-                    false_dupe: 2,
+                    false_dup: 2,
                     ..Default::default()
                 }),
                 ..Default::default()

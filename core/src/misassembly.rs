@@ -6,12 +6,12 @@ use crate::repeats::Repeat;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Hash)]
 pub enum MisassemblyType {
-    LowQuality,
+    HetMismap,
     Indel,
     SoftClip,
     Collapse,
     Misjoin,
-    FalseDupe,
+    FalseDup,
     RepeatError(Repeat),
     Null,
 }
@@ -19,12 +19,12 @@ pub enum MisassemblyType {
 impl MisassemblyType {
     pub fn is_mergeable(&self) -> bool {
         match self {
-            MisassemblyType::LowQuality
+            MisassemblyType::HetMismap
             | MisassemblyType::SoftClip
             | MisassemblyType::Collapse
             | MisassemblyType::Misjoin => true,
             MisassemblyType::Indel
-            | MisassemblyType::FalseDupe
+            | MisassemblyType::FalseDup
             | MisassemblyType::RepeatError(_)
             | MisassemblyType::Null => false,
         }
@@ -36,11 +36,11 @@ impl MisassemblyType {
             // #800080
             MisassemblyType::Indel => "128,0,128",
             // Teal
-            //  #80FFFF
+            // #80FFFF
             MisassemblyType::SoftClip => "0,255,255",
             // Pink
             // #FF0080
-            MisassemblyType::LowQuality => "255,0,128",
+            MisassemblyType::HetMismap => "255,0,128",
             // Green
             // #00FF00
             MisassemblyType::Collapse => "0,255,0",
@@ -49,10 +49,10 @@ impl MisassemblyType {
             MisassemblyType::Misjoin => "255,128,0",
             // Blue
             // #0000FF
-            MisassemblyType::FalseDupe => "0,0,255",
+            MisassemblyType::FalseDup => "0,0,255",
             // Scaffold
-            // #808080
-            MisassemblyType::RepeatError(Repeat::Scaffold) => "128,128,128",
+            // #f0f0f0
+            MisassemblyType::RepeatError(Repeat::Scaffold) => "240,240,240",
             // Yellow
             // #ECEC00
             MisassemblyType::RepeatError(Repeat::Homopolymer) => "236,236,0",
@@ -73,12 +73,12 @@ impl MisassemblyType {
 impl From<MisassemblyType> for &'static str {
     fn from(value: MisassemblyType) -> Self {
         match value {
-            MisassemblyType::LowQuality => "low_quality",
+            MisassemblyType::HetMismap => "het_mismap",
             MisassemblyType::Indel => "indel",
             MisassemblyType::SoftClip => "softclip",
             MisassemblyType::Collapse => "collapse",
             MisassemblyType::Misjoin => "misjoin",
-            MisassemblyType::FalseDupe => "false_dupe",
+            MisassemblyType::FalseDup => "false_dup",
             MisassemblyType::RepeatError(Repeat::Scaffold) => "scaffold",
             MisassemblyType::RepeatError(Repeat::Homopolymer) => "homopolymer",
             MisassemblyType::RepeatError(Repeat::Dinucleotide) => "dinucleotide",
@@ -94,12 +94,12 @@ impl FromStr for MisassemblyType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
-            "low_quality" => MisassemblyType::LowQuality,
+            "het_mismap" => MisassemblyType::HetMismap,
             "indel" => MisassemblyType::Indel,
             "softclip" => MisassemblyType::SoftClip,
             "misjoin" => MisassemblyType::Misjoin,
             "collapse" => MisassemblyType::Collapse,
-            "false_dupe" => MisassemblyType::FalseDupe,
+            "false_dup" => MisassemblyType::FalseDup,
             "scaffold" => MisassemblyType::RepeatError(Repeat::Scaffold),
             "homopolymer" => MisassemblyType::RepeatError(Repeat::Homopolymer),
             "dinucleotide" => MisassemblyType::RepeatError(Repeat::Dinucleotide),
@@ -120,20 +120,20 @@ impl Ord for MisassemblyType {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         match (self, other) {
             // Equal if same.
-            (MisassemblyType::LowQuality, MisassemblyType::LowQuality)
+            (MisassemblyType::HetMismap, MisassemblyType::HetMismap)
             | (MisassemblyType::Indel, MisassemblyType::Indel)
             | (MisassemblyType::SoftClip, MisassemblyType::SoftClip)
             | (MisassemblyType::Collapse, MisassemblyType::Collapse)
             | (MisassemblyType::Misjoin, MisassemblyType::Misjoin)
             | (MisassemblyType::Null, MisassemblyType::Null)
-            | (MisassemblyType::FalseDupe, MisassemblyType::FalseDupe) => Ordering::Equal,
+            | (MisassemblyType::FalseDup, MisassemblyType::FalseDup) => Ordering::Equal,
             // Null/good always less
             (_, MisassemblyType::Null) => Ordering::Greater,
-            // Never merge false dupes with others.
-            (MisassemblyType::FalseDupe, _) => Ordering::Less,
-            (_, MisassemblyType::FalseDupe) => Ordering::Less,
-            // Indel and low quality will never replace each other.
-            (MisassemblyType::LowQuality, _) => Ordering::Less,
+            // Never merge false dup with others.
+            (MisassemblyType::FalseDup, _) => Ordering::Less,
+            (_, MisassemblyType::FalseDup) => Ordering::Less,
+            // Indel and het/mismapping will never replace each other.
+            (MisassemblyType::HetMismap, _) => Ordering::Less,
             (MisassemblyType::Indel, _) => Ordering::Less,
             (_, MisassemblyType::Indel) => Ordering::Less,
             // Misjoin should be prioritized over softclip

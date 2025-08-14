@@ -9,6 +9,7 @@ mod utils;
 
 use crate::utils::{get_aln_intervals, get_ignored_intervals};
 
+/// NucFlag results.
 #[pyclass]
 pub struct PyNucFlagResult {
     /// Name of contig.
@@ -77,6 +78,7 @@ fn run_nucflag_itv(
 #[pyfunction]
 #[pyo3(signature = (preset = None, cfg = None))]
 fn print_config_from_preset(preset: Option<&str>, cfg: Option<&str>) -> PyResult<()> {
+    // TODO: Deserialize config as hashmap instead of printing.
     let cfg = read_cfg(cfg, preset).map_err(|err| PyValueError::new_err(err.to_string()))?;
     _ = simple_logger::init_with_level(cfg.general.log_level);
     log::info!("Using config:\n{cfg:#?}");
@@ -87,7 +89,7 @@ fn print_config_from_preset(preset: Option<&str>, cfg: Option<&str>) -> PyResult
 ///
 /// # Args
 /// * `aln`
-///     * Alignment file as BAM or CRAM file. Requires fasta if CRAM.
+///     * Alignment file as BAM or CRAM file. Requires fasta and `cs` tag if CRAM.
 /// * `bed`
 ///     * BED3 file with regions to evaluate.
 /// * `ignore_bed`

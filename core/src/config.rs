@@ -82,8 +82,8 @@ pub struct MinimumSizeConfig {
     pub null: usize,
     pub collapse: usize,
     pub misjoin: usize,
-    pub low_quality: usize,
-    pub false_dupe: usize,
+    pub het_mismap: usize,
+    pub false_dup: usize,
     pub softclip: usize,
     pub indel: usize,
     pub homopolymer: usize,
@@ -100,9 +100,9 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<MisassemblyType, u64> {
         Ok(HashMap::from_iter([
             (MisassemblyType::Null, cfg.null.try_into()?),
             (MisassemblyType::Collapse, cfg.collapse.try_into()?),
-            (MisassemblyType::FalseDupe, cfg.false_dupe.try_into()?),
+            (MisassemblyType::FalseDup, cfg.false_dup.try_into()?),
             (MisassemblyType::Indel, cfg.indel.try_into()?),
-            (MisassemblyType::LowQuality, cfg.low_quality.try_into()?),
+            (MisassemblyType::HetMismap, cfg.het_mismap.try_into()?),
             (MisassemblyType::Misjoin, cfg.misjoin.try_into()?),
             (MisassemblyType::SoftClip, cfg.softclip.try_into()?),
             (
@@ -135,8 +135,8 @@ impl Default for MinimumSizeConfig {
             null: 1,
             collapse: 500,
             misjoin: 1,
-            low_quality: 1,
-            false_dupe: 500,
+            het_mismap: 1,
+            false_dup: 500,
             softclip: 1,
             indel: 1,
             homopolymer: 1,
@@ -208,8 +208,8 @@ pub struct CoverageConfig {
     pub n_zscores_low: f32,
     /// Minimum coverage ratio required for a collapse.
     pub ratio_collapse: f32,
-    /// Minimum coverage ratio required for a false dupe.
-    pub ratio_false_dupe: f32,
+    /// Minimum coverage ratio required for a false dup.
+    pub ratio_false_dup: f32,
     /// Baseline coverage used for false-duplication classification. Defaults to average coverage of region.
     pub baseline: Option<u32>,
     /// Window to apply rolling mean filter. Reduces noise.
@@ -222,7 +222,7 @@ impl Default for CoverageConfig {
             n_zscores_high: 3.5,
             n_zscores_low: 2.0,
             ratio_collapse: 1.5,
-            ratio_false_dupe: 0.5,
+            ratio_false_dup: 0.5,
             rolling_mean_window: None,
             baseline: None,
         }
@@ -318,7 +318,7 @@ impl Default for SoftClipConfig {
 pub struct RepeatConfig {
     /// Which misassembles to check for repeats.
     /// * Usually types associated with drops in coverage.
-    /// * Defaults to [`MisassemblyType::Misjoin`], [`MisassemblyType::Indel`], and [`MisassemblyType::FalseDupe`].
+    /// * Defaults to [`MisassemblyType::Misjoin`], [`MisassemblyType::Indel`], and [`MisassemblyType::FalseDup`].
     pub check_types: HashSet<MisassemblyType>,
     /// Ratio required of checked region to call as repeat.
     /// * Defaults to a majority.
@@ -336,7 +336,7 @@ impl Default for RepeatConfig {
             check_types: HashSet::from_iter([
                 MisassemblyType::Misjoin,
                 MisassemblyType::Indel,
-                MisassemblyType::FalseDupe,
+                MisassemblyType::FalseDup,
             ]),
             ratio_repeat: 0.5,
             bp_extend: 5,

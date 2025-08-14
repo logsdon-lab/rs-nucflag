@@ -10,7 +10,7 @@ n_zscores_low = 1.0
 n_zscores_high = 4.5
 ratio_collapse = 1.5
 ratio_misjoin = 0.2
-ratio_false_dupe = 0.5
+ratio_false_dup = 0.5
 
 [mapq]
 n_zscores_low = 1.0
@@ -37,6 +37,6 @@ min_grp_size = 100_000
 min_ident = 80.0
 
 [repeat]
-check_types = ["Misjoin", "Indel", "FalseDupe"]
+check_types = ["Misjoin", "Indel", "FalseDup"]
 ratio_repeat = 0.5
 bp_extend = 5

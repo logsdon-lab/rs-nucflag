@@ -8,7 +8,7 @@ use crate::{
     misassembly::MisassemblyType,
     repeats::{detect_largest_repeat, Repeat},
 };
-use coitrees::{COITree, Interval, IntervalTree};
+use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
 use eyre::{bail, Context};
 use itertools::{multizip, Itertools};
 use noodles::{
@@ -105,7 +105,7 @@ fn ignore_boundary_misassemblies(
     default_boundary_positions: (i32, i32),
 ) {
     // Filter boundary misassemblies if below median coverage.
-    // Handles cases in telomeres classified as misjoin/false_dupe/indel/repeats just because fewer reads.
+    // Handles cases in telomeres classified as misjoin/false_dup/indel/repeats just because fewer reads.
     // * Also useful for specific regions like centromeres where we only care about the active array and don't mind misassemblies in pericentromere.
     let (ctg_st, ctg_end) = fasta
         .as_ref()
@@ -275,7 +275,7 @@ pub(crate) fn merge_misassemblies(
         });
         let status = largest_ovl
             .filter(|ovl_mtype| ovl_mtype.gt(&mtype))
-            .unwrap_or_else(|| MisassemblyType::from_str(status).unwrap());
+            .unwrap_or(mtype);
 
         // Detect scaffold/homopolymer/repeat and replace type.
         let status = if let (Some(reader), Some(cfg_rpt)) = (
@@ -405,12 +405,16 @@ pub(crate) fn merge_misassemblies(
         }
     }
 
+    // Merge book-ended or overlapping misassembled regions.
     // Remove intervals not within minimum sizes after merging.
     let minmax_reclassified_itvs_all = merge_intervals(
         minmax_reclassified_itvs_all.into_iter(),
         1,
-        |a, b| a.metadata.0 == b.metadata.0,
-        |a, b| (a.metadata.0, (a.metadata.1 + b.metadata.1) / 2),
+        |a, b| a.metadata.0 != MisassemblyType::Null && b.metadata.0 != MisassemblyType::Null,
+        |a, b| {
+            let largest_itv = std::cmp::max_by(a, b, |a, b| a.len().cmp(&b.len()));
+            (largest_itv.metadata.0, (a.metadata.1 + b.metadata.1) / 2)
+        },
         |a| {
             let mut status = a.metadata.0;
             // Remove misassemblies less than threshold size.
@@ -478,7 +482,7 @@ pub(crate) fn classify_peaks(
     cfg: &Config,
     median_cov: u32,
 ) -> eyre::Result<(DataFrame, DataFrame, BinStats)> {
-    let thr_false_dupe = (cfg.cov.ratio_false_dupe * median_cov as f32).floor();
+    let thr_false_dup = (cfg.cov.ratio_false_dup * median_cov as f32).floor();
     let thr_collapse = (cfg.cov.ratio_collapse * median_cov as f32).floor();
 
     let lf_pileup = lf_pileup
@@ -523,27 +527,27 @@ pub(crate) fn classify_peaks(
                     .and(((col("indel") + col("softclip")) / col("cov")).gt(lit(0.5)))),
             )
             .then(lit("misjoin"))
-            // false_dupe
+            // false_dup
             // Region with half of the expected coverage and a maximum mapq of zero due to multiple primary mappings.
             // Either a duplicated contig, duplicated region, or an SV (large insertion of repetive region).
             .when(
                 col("cov")
-                    .lt_eq(lit(thr_false_dupe))
+                    .lt_eq(lit(thr_false_dup))
                     .and(col("mapq_max").eq(lit(0))),
             )
-            .then(lit("false_dupe"))
+            .then(lit("false_dup"))
             .otherwise(col("status"))
             .alias("status"),
         )
         .with_column(
-            // low_quality
+            // het_mismap
             // Regions with high mismatch peak and het ratio.
             when(
                 (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
                     .gt_eq(lit(cfg.mismatch.ratio_het))
                     .and(col("mismatch_peak").eq(lit("high"))),
             )
-            .then(lit("low_quality"))
+            .then(lit("het_mismap"))
             .otherwise(col("status"))
             .alias("status"),
         );

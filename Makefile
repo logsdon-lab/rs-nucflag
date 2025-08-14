@@ -7,13 +7,23 @@ test:
 	cargo test
 
 
+test_remake_images:
+	eval $$(cd core/test && rm -f results/*.done && snakemake -p -s regenerate_plots.smk -c 12 > /dev/null);
+
+
 venv:
 	python -m venv venv
-	$(BIN)pip install maturin
+	$(BIN)pip install maturin pyo3-stubgen
 
 
 build_py:
 	$(BIN)maturin build --release -m py/Cargo.toml
+
+
+# This will delete the original! Doesn't include classes or types.
+build_py_stubs:
+	$(MAKE) install_py
+	$(BIN)pyo3-stubgen py_nucflag py
 
 
 install_py:

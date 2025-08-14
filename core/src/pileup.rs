@@ -1,12 +1,20 @@
 use coitrees::{GenericInterval, Interval};
-use eyre::Context;
+use eyre::{bail, Context};
 use itertools::Itertools;
 use noodles::{
-    bam, bgzf,
+    bam::{self},
+    bgzf,
     core::{Position, Region},
     cram,
     sam::{
-        alignment::record::{cigar::op::Kind, Cigar},
+        alignment::{
+            record::{
+                cigar::{op::Kind, Op},
+                data::field::Tag,
+                Cigar, Flags,
+            },
+            record_buf::{data::field::Value, Data},
+        },
         Header,
     },
 };
@@ -15,6 +23,47 @@ use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, fmt::Debug, fs::File, path::Path};
 
 use crate::config::Config;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+enum DiffToken {
+    Identical,
+    Substitution,
+    Insertion,
+    Deletion,
+    Intron,
+    Base,
+    Number,
+    Invalid(u8),
+}
+
+impl From<u8> for DiffToken {
+    fn from(value: u8) -> Self {
+        match value {
+            b'=' | b':' => DiffToken::Identical,
+            b'*' => DiffToken::Substitution,
+            b'+' => DiffToken::Insertion,
+            b'-' => DiffToken::Deletion,
+            b'~' => DiffToken::Intron,
+            b'0'..=b'9' => DiffToken::Number,
+            b'a' | b't' | b'g' | b'c' | b'n' => DiffToken::Base,
+            _ => DiffToken::Invalid(value),
+        }
+    }
+}
+
+impl TryFrom<DiffToken> for Kind {
+    type Error = eyre::Report;
+
+    fn try_from(value: DiffToken) -> Result<Self, Self::Error> {
+        Ok(match value {
+            DiffToken::Identical => Kind::SequenceMatch,
+            DiffToken::Substitution => Kind::SequenceMismatch,
+            DiffToken::Insertion => Kind::Insertion,
+            DiffToken::Deletion => Kind::Deletion,
+            _ => bail!("Cannot convert {value:?} to Kind."),
+        })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PileupMAPQFn {
@@ -162,6 +211,62 @@ macro_rules! pileup {
     };
 }
 
+fn update_cigar<'a>(
+    cg: impl Iterator<Item = &'a Op>,
+    tags: &Data,
+) -> eyre::Result<Option<Vec<Op>>> {
+    // Is not correct cigar format. Try to convert if cs provided.
+    if cg.into_iter().any(|op| op.kind() == Kind::Match) {
+        // :10*at:5-ac:6
+        if let Some(Value::String(difference_string)) = tags.get(&Tag::new(b'c', b's')) {
+            let mut curr_op: Option<DiffToken> = None;
+            let mut new_ops = vec![];
+            for (tk, elems) in &difference_string
+                .iter()
+                .chunk_by(|c| Into::<DiffToken>::into(**c))
+            {
+                let elems: Vec<&u8> = elems.collect();
+
+                match (curr_op.as_ref(), &tk) {
+                    (None, DiffToken::Identical)
+                    | (None, DiffToken::Substitution)
+                    | (None, DiffToken::Insertion)
+                    | (None, DiffToken::Deletion)
+                    | (None, DiffToken::Intron) => curr_op = Some(tk.clone()),
+                    (None, _) => bail!("Invalid starting token: {tk:?}"),
+                    (Some(op), DiffToken::Base) => {
+                        let op_kind: Kind = op.clone().try_into()?;
+                        new_ops.push(Op::new(op_kind, elems.len()));
+                        curr_op.take();
+                    }
+                    (Some(op), DiffToken::Number) => {
+                        let op_kind: Kind = op.clone().try_into()?;
+                        new_ops.push(Op::new(
+                            op_kind,
+                            elems.into_iter().map(|e| *e as char).join("").parse()?,
+                        ));
+                        curr_op.take();
+                    }
+                    (Some(op), DiffToken::Identical)
+                    | (Some(op), DiffToken::Substitution)
+                    | (Some(op), DiffToken::Insertion)
+                    | (Some(op), DiffToken::Deletion)
+                    | (Some(op), DiffToken::Intron)
+                    | (Some(op), DiffToken::Invalid(_)) => bail!(
+                        "Invalid matching token: {op:?}: {}",
+                        elems.into_iter().map(|e| *e as char).join("")
+                    ),
+                }
+            }
+            Ok(Some(new_ops))
+        } else {
+            bail!("Invalid cigar string. Must be extended cigar (=/X) or include cs tag.")
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 impl AlignmentFile {
     pub fn new(aln: impl AsRef<Path> + Debug) -> eyre::Result<Self> {
         if aln
@@ -215,18 +320,27 @@ impl AlignmentFile {
                 let header: noodles::sam::Header = indexed_reader.read_header()?;
                 let query: cram::io::reader::Query<'_, File> =
                     indexed_reader.query(&header, &region)?;
-                for rec in query
-                    .into_iter()
-                    .flatten()
-                    .filter(|aln| aln.sequence().len() > min_aln_length)
-                {
+                for rec in query.into_iter().flatten().filter(|aln| {
+                    aln.sequence().len() > min_aln_length && !aln.flags().contains(Flags::SECONDARY)
+                }) {
                     let cg: &noodles::sam::alignment::record_buf::Cigar = rec.cigar();
-                    let aln_pairs = get_aligned_pairs(
-                        cg.iter().flatten().map(|op| (op.kind(), op.len())),
-                        rec.alignment_start().unwrap().get(),
-                        min_ins_size,
-                        min_del_size,
-                    )?;
+                    // Update cigar if cs tag is available. MD is annoying so not implemented.
+                    let aln_pairs =
+                        if let Some(updated_cg) = update_cigar(cg.as_ref().iter(), rec.data())? {
+                            get_aligned_pairs(
+                                updated_cg.into_iter().map(|op| (op.kind(), op.len())),
+                                rec.alignment_start().unwrap().get(),
+                                min_ins_size,
+                                min_del_size,
+                            )?
+                        } else {
+                            get_aligned_pairs(
+                                cg.iter().flatten().map(|op| (op.kind(), op.len())),
+                                rec.alignment_start().unwrap().get(),
+                                min_ins_size,
+                                min_del_size,
+                            )?
+                        };
                     pileup!(rec, aln_pairs, st, end, pileup_infos)
                 }
             }
@@ -234,11 +348,9 @@ impl AlignmentFile {
                 let header: noodles::sam::Header = indexed_reader.read_header()?;
                 let query: bam::io::reader::Query<'_, bgzf::Reader<File>> =
                     indexed_reader.query(&header, &region)?;
-                for rec in query
-                    .into_iter()
-                    .flatten()
-                    .filter(|aln| aln.sequence().len() > min_aln_length)
-                {
+                for rec in query.into_iter().flatten().filter(|aln| {
+                    aln.sequence().len() > min_aln_length && !aln.flags().contains(Flags::SECONDARY)
+                }) {
                     let cg: bam::record::Cigar<'_> = rec.cigar();
                     let aln_pairs = get_aligned_pairs(
                         cg.iter().flatten().map(|op| (op.kind(), op.len())),
@@ -326,9 +438,16 @@ pub(crate) fn merge_pileup_info(
 mod test {
     use crate::{
         config::Config,
-        pileup::{merge_pileup_info, AlignmentFile, PileupInfo, PileupSummary},
+        pileup::{merge_pileup_info, update_cigar, AlignmentFile, PileupInfo, PileupSummary},
     };
     use noodles::core::{Position, Region};
+    use noodles::sam::alignment::{
+        record::{
+            cigar::{op::Kind, Op},
+            data::field::Tag,
+        },
+        record_buf::{data::field::Value, Data},
+    };
     use polars::df;
 
     #[test]
@@ -416,5 +535,47 @@ mod test {
             )
             .unwrap()
         );
+    }
+
+    fn cigar_data() -> (Vec<Op>, Data, [Op; 5]) {
+        let (tag, value) = (Tag::new(b'c', b's'), Value::from(":10*at:5-ac:6"));
+        let data: Data = [(tag, value.clone())].into_iter().collect();
+
+        let cg = vec![
+            Op::new(Kind::Match, 16),
+            Op::new(Kind::Deletion, 2),
+            Op::new(Kind::Match, 6),
+        ];
+        const EXPECTED: [Op; 5] = [
+            Op::new(Kind::SequenceMatch, 10),
+            Op::new(Kind::SequenceMismatch, 2),
+            Op::new(Kind::SequenceMatch, 5),
+            Op::new(Kind::Deletion, 2),
+            Op::new(Kind::SequenceMatch, 6),
+        ];
+        (cg, data, EXPECTED)
+    }
+    #[test]
+    fn test_update_cigar() {
+        let (cg, data, cg_exp) = cigar_data();
+        let new_cg = update_cigar(cg.iter(), &data).unwrap();
+
+        assert_eq!(new_cg.unwrap(), cg_exp)
+    }
+
+    #[test]
+    fn test_update_cigar_no_change() {
+        let (_, data, cg_exp) = cigar_data();
+        // Already proper cigar
+        let new_cg = update_cigar(cg_exp.iter(), &data).unwrap();
+        assert!(new_cg.is_none())
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_update_cigar_no_cs_tag() {
+        let (cg, mut data, _) = cigar_data();
+        data.clear();
+        update_cigar(cg.iter(), &data).unwrap();
     }
 }
