@@ -61,7 +61,7 @@ pub fn group_pileup_by_ani(
     let region = Region::new(itv.metadata.clone(), position);
     let seq = reader_fasta.query(&region)?;
 
-    let itv_idents: COITree<u64, usize> = {
+    let itv_idents: COITree<(u64, f32), usize> = {
         log::info!("Calculating self-identity for {ctg}:{st}-{end} to bin region.");
         let bed_ident = compute_seq_self_identity(
             str::from_utf8(seq.sequence().as_ref())?,
@@ -74,15 +74,21 @@ pub fn group_pileup_by_ani(
         log::info!("Grouping repetitive intervals in {ctg}:{st}-{end}.");
         let bed_group_ident = compute_group_seq_self_identity(&bed_ident);
 
-        let mut itvs: VecDeque<Interval<u64>> = bed_group_ident
+        let mut itvs: VecDeque<Interval<(u64, f32)>> = bed_group_ident
             .into_iter()
             .filter(|r| (r.end - r.start > min_grp_size) && r.avg_perc_id_by_events > min_ident)
             .enumerate()
             // 0 is unbinned.
-            .map(|(i, r)| Interval::new(r.start as i32 + st, r.end as i32 + st, (i + 1) as u64))
+            .map(|(i, r)| {
+                Interval::new(
+                    r.start as i32 + st,
+                    r.end as i32 + st,
+                    ((i + 1) as u64, r.avg_perc_id_by_events),
+                )
+            })
             .collect();
 
-        let mut final_itvs: Vec<Interval<u64>> = vec![];
+        let mut final_itvs: Vec<Interval<(u64, f32)>> = vec![];
         let lf_cov = df.select(["pos", "cov"])?.lazy();
 
         while let Some(mut itv) = itvs.pop_front() {
@@ -123,7 +129,7 @@ pub fn group_pileup_by_ani(
     // TODO: Change to perc identity.
     // Add groups to pileup.
     // N's will cause offset so need to detect overlaps.
-    let ident_groups: Vec<u64> = df
+    let (ident_groups, ident_values): (Vec<u64>, Vec<f32>) = df
         .column("pos")?
         .cast(&DataType::Int32)?
         .i32()?
@@ -135,9 +141,10 @@ pub fn group_pileup_by_ani(
             // If not in group, assign to other bin, 0.
             group.unwrap_or_default()
         })
-        .collect();
+        .unzip();
 
     df.with_column(Column::new("bin".into(), ident_groups))?;
+    df.with_column(Column::new("bin_ident".into(), ident_values))?;
 
     Ok(df)
 }

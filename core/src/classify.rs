@@ -610,6 +610,7 @@ pub(crate) fn classify_peaks(
         col("indel"),
         col("softclip"),
         col("bin"),
+        col("bin_ident"),
     ];
     let df_pileup = lf_pileup
         .with_column(lit(ctg).alias("chrom"))

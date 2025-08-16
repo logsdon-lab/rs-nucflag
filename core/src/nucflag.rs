@@ -96,7 +96,15 @@ fn nucflag_grp(
         )
         .join(
             df_pileup
-                .select(["pos", "mapq_max", "mismatch", "indel", "softclip", "bin"])?
+                .select([
+                    "pos",
+                    "mapq_max",
+                    "mismatch",
+                    "indel",
+                    "softclip",
+                    "bin",
+                    "bin_ident",
+                ])?
                 .lazy(),
             [col("pos")],
             [col("pos")],
@@ -155,7 +163,10 @@ where
     } else {
         vec![df_raw_pileup
             .lazy()
-            .with_column(lit(0).cast(DataType::UInt64).alias("bin"))
+            .with_columns([
+                lit(0).cast(DataType::UInt64).alias("bin"),
+                lit(0.0).cast(DataType::Float32).alias("bin_ident"),
+            ])
             .collect()?]
     };
 
