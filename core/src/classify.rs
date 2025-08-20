@@ -129,12 +129,13 @@ fn ignore_boundary_misassemblies(
         .map(|itv| itv.first == ctg_st)
         .unwrap_or_default()
     {
+        // Keep removing while below median and not a good interval.
         while let Some(itv) = itvs.get_mut(idx_st).filter(|itv| {
             let bin = &bin_stats[&itv.metadata.2];
-            itv.metadata.1 < bin.median as u32
+            itv.metadata.1 < bin.median as u32 && itv.metadata.0 != MisassemblyType::Null
         }) {
             let og_mdata = itv.metadata;
-            log::debug!("Filtered out {:?}: {ctg}:{}-{} at contig start with coverage below bin median {:?}", og_mdata.0, itv.first, itv.last, &bin_stats[&og_mdata.2]);
+            log::debug!("Filtered out {:?}: {ctg}:{}-{} at contig start with coverage ({}) below bin median {:?}", og_mdata.0, itv.first, itv.last, og_mdata.1, &bin_stats[&og_mdata.2]);
             *itv = Interval::new(
                 itv.first,
                 itv.last,
@@ -151,14 +152,15 @@ fn ignore_boundary_misassemblies(
     {
         while let Some(itv) = itvs.get_mut(idx_end).filter(|itv| {
             let bin = &bin_stats[&itv.metadata.2];
-            itv.metadata.1 < bin.median as u32
+            itv.metadata.1 < bin.median as u32 && itv.metadata.0 != MisassemblyType::Null
         }) {
             let og_mdata = itv.metadata;
             log::debug!(
-                "Filtered out {:?}: {ctg}:{}-{} on contig end with coverage below bin median {:?}",
+                "Filtered out {:?}: {ctg}:{}-{} on contig end with coverage ({}) below bin median {:?}",
                 og_mdata.0,
                 itv.first,
                 itv.last,
+                og_mdata.1,
                 &bin_stats[&og_mdata.2]
             );
             *itv = Interval::new(
