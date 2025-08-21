@@ -574,12 +574,18 @@ pub(crate) fn classify_peaks(
             ])
             .select([col("bin"), col("cov_median"), col("cov_stdev")])
             .collect()?;
+
+        // Don't use polars ChunkedArray::first() as unchecked and will segfault if empty despite type signature being Option<T>
+        // https://docs.rs/polars-core/0.50.0/src/polars_core/chunked_array/mod.rs.html#568
+        let bin = df_bin_stats
+            .column("bin")?
+            .u64()?
+            .iter()
+            .flatten()
+            .next()
+            .unwrap_or_default();
         BinStats {
-            num: df_bin_stats
-                .column("bin")?
-                .u64()?
-                .first()
-                .unwrap_or_default(),
+            num: bin,
             median: df_bin_stats
                 .column("cov_median")?
                 .median_reduce()?
