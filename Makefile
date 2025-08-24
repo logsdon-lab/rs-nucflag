@@ -21,6 +21,7 @@ build_py:
 
 
 # This will delete the original! Doesn't include classes or types.
+# TODO: Merge files. https://stackoverflow.com/a/9123512
 build_py_stubs:
 	$(MAKE) install_py
 	$(BIN)pyo3-stubgen py_nucflag py

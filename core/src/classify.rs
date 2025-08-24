@@ -1,20 +1,17 @@
 use core::str;
-use std::{collections::HashMap, fmt::Debug, fs::File, io::BufReader, path::Path, str::FromStr};
+use std::{collections::HashMap, fmt::Debug, path::Path, str::FromStr};
 
 use crate::{
     binning::BinStats,
     config::Config,
     intervals::{merge_intervals, overlap_length, subtract_intervals},
+    io::FastaHandle,
     misassembly::MisassemblyType,
     repeats::{detect_largest_repeat, Repeat},
 };
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
-use eyre::{bail, Context};
+use eyre::bail;
 use itertools::{multizip, Itertools};
-use noodles::{
-    core::{Position, Region},
-    fasta::{self, IndexedReader},
-};
 use polars::{frame::row::Row, prelude::*};
 
 fn split_at_ignored_intervals<'a>(
@@ -100,7 +97,7 @@ fn get_itree_above_median(
 fn ignore_boundary_misassemblies(
     itvs: &mut [Interval<(MisassemblyType, u32, u64)>],
     ctg: &str,
-    fasta: Option<IndexedReader<BufReader<File>>>,
+    fasta: Option<FastaHandle>,
     bin_stats: &HashMap<u64, BinStats>,
     default_boundary_positions: (i32, i32),
 ) {
@@ -110,7 +107,7 @@ fn ignore_boundary_misassemblies(
     let (ctg_st, ctg_end) = fasta
         .as_ref()
         .and_then(|fh| {
-            let rec = fh.index().as_ref().iter().find(|rec| rec.name() == ctg)?;
+            let rec = fh.fai.as_ref().iter().find(|rec| rec.name() == ctg)?;
             Some((0i32, (rec.length() + 1) as i32))
         })
         .unwrap_or(default_boundary_positions);
@@ -239,12 +236,7 @@ pub(crate) fn merge_misassemblies(
 
     let mut fasta_reader = if let Some(fasta) = fasta {
         log::info!("Reading indexed {fasta:?} for {ctg} to classify misassemblies by repeat.");
-        let mut fai = fasta.as_ref().as_os_str().to_owned();
-        fai.push(".fai");
-        let fai =
-            fasta::fai::read(fai).with_context(|| format!("Fasta file {fasta:?} not indexed."))?;
-        let fa = BufReader::new(File::open(fasta)?);
-        Some(fasta::IndexedReader::new(fa, fai))
+        Some(FastaHandle::new(fasta)?)
     } else {
         None
     };
@@ -298,11 +290,7 @@ pub(crate) fn merge_misassemblies(
             let end = end
                 .saturating_add(cfg_rpt.bp_extend.try_into()?)
                 .try_into()?;
-            let region = Region::new(
-                ctg,
-                Position::new(st).unwrap()..=Position::new(end).unwrap(),
-            );
-            let record = reader.query(&region)?;
+            let record = reader.fetch(ctg, st, end)?;
             let seq = str::from_utf8(record.sequence().as_ref())?;
             detect_largest_repeat(seq)
                 .and_then(|rpt| {

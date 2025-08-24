@@ -2,15 +2,10 @@ use core::str;
 use std::{collections::VecDeque, fmt::Debug, path::Path};
 
 use coitrees::{COITree, Interval, IntervalTree};
-use eyre::Context;
-use noodles::{
-    core::{Position, Region},
-    fasta,
-};
 use polars::prelude::*;
 use rs_moddotplot::{compute_group_seq_self_identity, compute_seq_self_identity};
 
-use crate::config::GroupByANIConfig;
+use crate::{config::GroupByANIConfig, io::FastaHandle};
 
 pub struct BinStats {
     pub num: u64,
@@ -54,12 +49,8 @@ pub fn group_pileup_by_ani(
     let min_grp_size = cfg.min_grp_size;
     let min_ident = cfg.min_ident;
 
-    let mut reader_fasta = fasta::io::indexed_reader::Builder::default()
-        .build_from_path(&fasta)
-        .with_context(|| format!("Cannot read indexed fasta file. {fasta:?}"))?;
-    let position = Position::new(st.try_into()?).unwrap()..=Position::new(end.try_into()?).unwrap();
-    let region = Region::new(itv.metadata.clone(), position);
-    let seq = reader_fasta.query(&region)?;
+    let mut reader_fasta = FastaHandle::new(fasta)?;
+    let seq = reader_fasta.fetch(&ctg, st as u32, end as u32)?;
 
     let itv_idents: COITree<(u64, f32), usize> = {
         log::info!("Calculating self-identity for {ctg}:{st}-{end} to bin region.");

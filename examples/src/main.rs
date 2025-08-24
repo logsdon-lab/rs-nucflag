@@ -35,10 +35,10 @@ fn cli_fasta() -> Result<(), Box<dyn Error>> {
         .map(|arg| arg.parse::<usize>())
         .unwrap_or(Ok(1))?;
     let preset = args.get(6).filter(|p| p.as_str() != "none");
-    let cfg: Config = read_cfg(config, preset.map(|x| x.as_str()))?;
+    let cfg: Config = read_cfg(config.filter(|c| *c != "none"), preset.map(|x| x.as_str()))?;
 
     // Set number of threads.
-    ThreadPoolBuilder::new().num_threads(threads);
+    _ = ThreadPoolBuilder::new().num_threads(threads).build_global();
 
     let ctg_itvs: Vec<Interval<String>> = read_bed(bed, |name, st, end, _| {
         Interval::new(
