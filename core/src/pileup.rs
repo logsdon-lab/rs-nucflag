@@ -234,6 +234,10 @@ fn update_cigar<'a>(
                     | (None, DiffToken::Deletion)
                     | (None, DiffToken::Intron) => curr_op = Some(tk.clone()),
                     (None, _) => bail!("Invalid starting token: {tk:?}"),
+                    (Some(DiffToken::Substitution), DiffToken::Base) => {
+                        new_ops.push(Op::new(Kind::SequenceMismatch, 1));
+                        curr_op.take();
+                    }
                     (Some(op), DiffToken::Base) => {
                         let op_kind: Kind = op.clone().try_into()?;
                         new_ops.push(Op::new(op_kind, elems.len()));
@@ -243,7 +247,7 @@ fn update_cigar<'a>(
                         let op_kind: Kind = op.clone().try_into()?;
                         new_ops.push(Op::new(
                             op_kind,
-                            elems.into_iter().map(|e| *e as char).join("").parse()?,
+                            elems.into_iter().map(|e| char::from(*e)).join("").parse()?,
                         ));
                         curr_op.take();
                     }
@@ -451,6 +455,95 @@ mod test {
     use polars::df;
 
     #[test]
+    fn test_pileup_cram() {
+        let mut bam = AlignmentFile::new("test/pileup/input/test_indel.cram").unwrap();
+        let itv = coitrees::Interval::new(28968482, 28968488, "chr10_PATERNAL".to_owned());
+        let res = bam.pileup(&itv, 1, 1, 0).unwrap();
+        assert_eq!(
+            res.pileups,
+            [
+                PileupInfo {
+                    n_cov: 25,
+                    n_mismatch: 0,
+                    n_indel: 0,
+                    n_softclip: 0,
+                    mapq: [
+                        60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
+                        60, 52, 52, 46, 34, 36
+                    ]
+                    .to_vec()
+                },
+                PileupInfo {
+                    n_cov: 25,
+                    n_mismatch: 0,
+                    n_indel: 0,
+                    n_softclip: 0,
+                    mapq: [
+                        60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
+                        60, 52, 52, 46, 34, 36
+                    ]
+                    .to_vec()
+                },
+                PileupInfo {
+                    n_cov: 25,
+                    n_mismatch: 0,
+                    n_indel: 0,
+                    n_softclip: 0,
+                    mapq: [
+                        60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
+                        60, 52, 52, 46, 34, 36
+                    ]
+                    .to_vec()
+                },
+                PileupInfo {
+                    n_cov: 25,
+                    n_mismatch: 0,
+                    n_indel: 25,
+                    n_softclip: 0,
+                    mapq: [
+                        60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
+                        60, 52, 52, 46, 34, 36
+                    ]
+                    .to_vec()
+                },
+                PileupInfo {
+                    n_cov: 25,
+                    n_mismatch: 0,
+                    n_indel: 0,
+                    n_softclip: 0,
+                    mapq: [
+                        60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
+                        60, 52, 52, 46, 34, 36
+                    ]
+                    .to_vec()
+                },
+                PileupInfo {
+                    n_cov: 25,
+                    n_mismatch: 0,
+                    n_indel: 0,
+                    n_softclip: 0,
+                    mapq: [
+                        60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
+                        60, 52, 52, 46, 34, 36
+                    ]
+                    .to_vec()
+                },
+                PileupInfo {
+                    n_cov: 25,
+                    n_mismatch: 0,
+                    n_indel: 0,
+                    n_softclip: 0,
+                    mapq: [
+                        60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
+                        60, 52, 52, 46, 34, 36
+                    ]
+                    .to_vec()
+                }
+            ]
+        )
+    }
+
+    #[test]
     fn test_pileup() {
         let mut bam = AlignmentFile::new("test/pileup/input/test.bam").unwrap();
         let itv = coitrees::Interval::new(
@@ -548,7 +641,7 @@ mod test {
         ];
         const EXPECTED: [Op; 5] = [
             Op::new(Kind::SequenceMatch, 10),
-            Op::new(Kind::SequenceMismatch, 2),
+            Op::new(Kind::SequenceMismatch, 1),
             Op::new(Kind::SequenceMatch, 5),
             Op::new(Kind::Deletion, 2),
             Op::new(Kind::SequenceMatch, 6),
