@@ -211,16 +211,19 @@ macro_rules! pileup {
     };
 }
 
-fn update_cigar<'a>(
-    cg: impl Iterator<Item = &'a Op>,
-    tags: &Data,
-) -> eyre::Result<Option<Vec<Op>>> {
+fn update_cigar(cg: &[Op], tags: &Data) -> eyre::Result<Option<Vec<Op>>> {
     // Is not correct cigar format. Try to convert if cs provided.
-    if cg.into_iter().any(|op| op.kind() == Kind::Match) {
+    if cg.iter().any(|op| op.kind() == Kind::Match) {
         // :10*at:5-ac:6
         if let Some(Value::String(difference_string)) = tags.get(&Tag::new(b'c', b's')) {
+            // Check if last and first op is softclip
+            let mut new_ops =
+                if let Some(first_op) = cg.first().filter(|op| op.kind() == Kind::SoftClip) {
+                    vec![*first_op]
+                } else {
+                    vec![]
+                };
             let mut curr_op: Option<DiffToken> = None;
-            let mut new_ops = vec![];
             for (tk, elems) in &difference_string
                 .iter()
                 .chunk_by(|c| Into::<DiffToken>::into(**c))
@@ -262,6 +265,11 @@ fn update_cigar<'a>(
                     ),
                 }
             }
+
+            if let Some(last_op) = cg.last().filter(|op| op.kind() == Kind::SoftClip) {
+                new_ops.push(*last_op);
+            }
+
             Ok(Some(new_ops))
         } else {
             bail!("Invalid cigar string. Must be extended cigar (=/X) or include cs tag.")
@@ -329,22 +337,22 @@ impl AlignmentFile {
                 }) {
                     let cg: &noodles::sam::alignment::record_buf::Cigar = rec.cigar();
                     // Update cigar if cs tag is available. MD is annoying so not implemented.
-                    let aln_pairs =
-                        if let Some(updated_cg) = update_cigar(cg.as_ref().iter(), rec.data())? {
-                            get_aligned_pairs(
-                                updated_cg.into_iter().map(|op| (op.kind(), op.len())),
-                                rec.alignment_start().unwrap().get(),
-                                min_ins_size,
-                                min_del_size,
-                            )?
-                        } else {
-                            get_aligned_pairs(
-                                cg.iter().flatten().map(|op| (op.kind(), op.len())),
-                                rec.alignment_start().unwrap().get(),
-                                min_ins_size,
-                                min_del_size,
-                            )?
-                        };
+                    let aln_pairs = if let Some(updated_cg) = update_cigar(cg.as_ref(), rec.data())?
+                    {
+                        get_aligned_pairs(
+                            updated_cg.into_iter().map(|op| (op.kind(), op.len())),
+                            rec.alignment_start().unwrap().get(),
+                            min_ins_size,
+                            min_del_size,
+                        )?
+                    } else {
+                        get_aligned_pairs(
+                            cg.iter().flatten().map(|op| (op.kind(), op.len())),
+                            rec.alignment_start().unwrap().get(),
+                            min_ins_size,
+                            min_del_size,
+                        )?
+                    };
                     pileup!(rec, aln_pairs, st, end, pileup_infos)
                 }
             }
@@ -648,10 +656,32 @@ mod test {
         ];
         (cg, data, EXPECTED)
     }
+
+    fn cigar_data_softclip() -> (Vec<Op>, Data, [Op; 6]) {
+        let (tag, value) = (Tag::new(b'c', b's'), Value::from(":10*at:5-ac:6"));
+        let data: Data = [(tag, value.clone())].into_iter().collect();
+
+        let cg = vec![
+            Op::new(Kind::SoftClip, 1),
+            Op::new(Kind::Match, 16),
+            Op::new(Kind::Deletion, 2),
+            Op::new(Kind::Match, 6),
+        ];
+        const EXPECTED: [Op; 6] = [
+            Op::new(Kind::SoftClip, 1),
+            Op::new(Kind::SequenceMatch, 10),
+            Op::new(Kind::SequenceMismatch, 1),
+            Op::new(Kind::SequenceMatch, 5),
+            Op::new(Kind::Deletion, 2),
+            Op::new(Kind::SequenceMatch, 6),
+        ];
+        (cg, data, EXPECTED)
+    }
+
     #[test]
     fn test_update_cigar() {
         let (cg, data, cg_exp) = cigar_data();
-        let new_cg = update_cigar(cg.iter(), &data).unwrap();
+        let new_cg = update_cigar(&cg, &data).unwrap();
 
         assert_eq!(new_cg.unwrap(), cg_exp)
     }
@@ -660,7 +690,7 @@ mod test {
     fn test_update_cigar_no_change() {
         let (_, data, cg_exp) = cigar_data();
         // Already proper cigar
-        let new_cg = update_cigar(cg_exp.iter(), &data).unwrap();
+        let new_cg = update_cigar(&cg_exp, &data).unwrap();
         assert!(new_cg.is_none())
     }
 
@@ -669,6 +699,14 @@ mod test {
     fn test_update_cigar_no_cs_tag() {
         let (cg, mut data, _) = cigar_data();
         data.clear();
-        update_cigar(cg.iter(), &data).unwrap();
+        update_cigar(&cg, &data).unwrap();
+    }
+
+    #[test]
+    fn test_update_cigar_softclip() {
+        let (cg, data, cg_exp) = cigar_data_softclip();
+        // Already proper cigar
+        let new_cg = update_cigar(&cg, &data).unwrap();
+        assert_eq!(new_cg.unwrap(), cg_exp)
     }
 }
