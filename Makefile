@@ -4,7 +4,7 @@ BIN=venv/bin/
 
 
 test:
-	cargo test
+	cargo test -p rs-nucflag --release
 
 
 test_remake_images:

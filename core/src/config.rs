@@ -175,7 +175,6 @@ pub struct GeneralConfig {
     /// Display log level.
     pub log_level: Level,
     /// Number of bases to merge misassembly intervals.
-    /// * TODO: Mention merging rules.
     pub bp_merge: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
     pub bp_wg_window: usize,
@@ -185,6 +184,8 @@ pub struct GeneralConfig {
     /// * If fasta provided, defaults to boundaries of each contig.
     /// * With no fasta, defaults to boundaries of queried region.
     pub ignore_boundaries: bool,
+    /// Only merge identical misassembly types.
+    pub merge_identical: bool,
 }
 
 impl Default for GeneralConfig {
@@ -195,6 +196,7 @@ impl Default for GeneralConfig {
             bp_wg_window: 10_000_000,
             bp_min_aln_length: 1,
             ignore_boundaries: false,
+            merge_identical: true,
         }
     }
 }
@@ -323,10 +325,10 @@ pub struct RepeatConfig {
     /// Ratio required of checked region to call as repeat.
     /// * Defaults to a majority.
     pub ratio_repeat: f32,
-    /// Extend region checked by n bases on both ends.
+    /// Extend region checked by n bases.
     /// By default is the misassembled regions length.
     /// * Sometimes this is not enough as only 1 position long.
-    /// * Defaults to 5 bp.
+    /// * Defaults to 10 bp.
     pub bp_extend: usize,
 }
 

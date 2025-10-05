@@ -28,8 +28,9 @@ pub(crate) fn get_whole_genome_intervals(
             );
             (1..num + 1)
                 .map(move |i| {
+                    // One-based half closed, half open intervals
                     Interval::new(
-                        ((i - 1) * window) as i32,
+                        (((i - 1) * window) + 1) as i32,
                         (i * window) as i32,
                         ctg_name.clone(),
                     )

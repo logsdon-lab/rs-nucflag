@@ -50,9 +50,9 @@ impl MisassemblyType {
             // Blue
             // #0000FF
             MisassemblyType::FalseDup => "0,0,255",
-            // Scaffold
-            // #f0f0f0
-            MisassemblyType::RepeatError(Repeat::Scaffold) => "240,240,240",
+            // Black
+            // #000000
+            MisassemblyType::RepeatError(Repeat::Scaffold) => "0,0,0",
             // Yellow
             // #ECEC00
             MisassemblyType::RepeatError(Repeat::Homopolymer) => "236,236,0",
@@ -65,7 +65,9 @@ impl MisassemblyType {
             // Dirt
             // #9b7653
             MisassemblyType::RepeatError(Repeat::Other) => "155,118,83",
-            MisassemblyType::Null => "0,0,0",
+            // Light gray
+            // #cecece
+            MisassemblyType::Null => "206,206,206",
         }
     }
 }

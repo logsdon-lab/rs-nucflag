@@ -202,6 +202,7 @@ pub(crate) fn merge_misassemblies(
         .filter(col("status").neq(lit("good")))
         .collect()?;
 
+    // TODO: Rewrite merging function to merge over three intervals
     // Merge overlapping misassembly intervals OVER status type choosing largest misassembly type.
     let itvs_misasm = merge_intervals(
         multizip((
@@ -254,6 +255,7 @@ pub(crate) fn merge_misassemblies(
         let mtype = MisassemblyType::from_str(status)?;
         final_misasm_itvs.query(st, end, |ovl_itv| {
             let ovl_prop = overlap_length(st, end, ovl_itv.first, ovl_itv.last) as f32 / len;
+            // Needs majority.
             if ovl_prop < 0.5 {
                 return;
             }
@@ -283,14 +285,10 @@ pub(crate) fn merge_misassemblies(
                 }),
         ) {
             // Add extended region.
-            let st = st
-                .saturating_sub(cfg_rpt.bp_extend.try_into()?)
-                .clamp(1, i32::MAX)
-                .try_into()?;
             let end = end
                 .saturating_add(cfg_rpt.bp_extend.try_into()?)
                 .try_into()?;
-            let record = reader.fetch(ctg, st, end)?;
+            let record = reader.fetch(ctg, st.try_into()?, end)?;
             let seq = str::from_utf8(record.sequence().as_ref())?;
             detect_largest_repeat(seq)
                 .and_then(|rpt| {
@@ -395,27 +393,39 @@ pub(crate) fn merge_misassemblies(
         }
     }
 
-    // Merge book-ended or overlapping misassembled regions.
+    let fn_finalizer = |a: Interval<(MisassemblyType, u32)>| -> Interval<(MisassemblyType, u32)> {
+        let mut status = a.metadata.0;
+        // Remove misassemblies less than threshold size.
+        let min_size = thr_minimum_sizes[&status];
+        let length = (a.last - a.first) as u64;
+        if length < min_size {
+            status = MisassemblyType::Null;
+        }
+        Interval::new(a.first, a.last, (status, a.metadata.1))
+    };
     // Remove intervals not within minimum sizes after merging.
-    let minmax_reclassified_itvs_all = merge_intervals(
-        minmax_reclassified_itvs_all.into_iter(),
-        1,
-        |a, b| a.metadata.0 != MisassemblyType::Null && b.metadata.0 != MisassemblyType::Null,
-        |a, b| {
-            let largest_itv = std::cmp::max_by(a, b, |a, b| a.len().cmp(&b.len()));
-            (largest_itv.metadata.0, (a.metadata.1 + b.metadata.1) / 2)
-        },
-        |a| {
-            let mut status = a.metadata.0;
-            // Remove misassemblies less than threshold size.
-            let min_size = thr_minimum_sizes[&status];
-            let length = (a.last - a.first) as u64;
-            if length < min_size {
-                status = MisassemblyType::Null;
-            }
-            Interval::new(a.first, a.last, (status, a.metadata.1))
-        },
-    );
+    let minmax_reclassified_itvs_all = if cfg.general.merge_identical {
+        // Merge identical misassembled regions that are bookended or overlapping.
+        merge_intervals(
+            minmax_reclassified_itvs_all.into_iter(),
+            1,
+            |a, b| a.metadata.0 == b.metadata.0,
+            |a, b| (a.metadata.0, (a.metadata.1 + b.metadata.1) / 2),
+            fn_finalizer,
+        )
+    } else {
+        // Merge book-ended or overlapping misassembled regions.
+        merge_intervals(
+            minmax_reclassified_itvs_all.into_iter(),
+            1,
+            |a, b| a.metadata.0 != MisassemblyType::Null && b.metadata.0 != MisassemblyType::Null,
+            |a, b| {
+                let largest_itv = std::cmp::max_by(a, b, |a, b| a.len().cmp(&b.len()));
+                (largest_itv.metadata.0, (a.metadata.1 + b.metadata.1) / 2)
+            },
+            fn_finalizer,
+        )
+    };
 
     let minmax_reclassified_itvs_all: Vec<Row> = minmax_reclassified_itvs_all
         .into_iter()
@@ -478,11 +488,17 @@ pub(crate) fn classify_peaks(
     let lf_pileup = lf_pileup
         .with_column(
             // indel
-            // Region with insertion or deletion or soft clip that has high indel ratio and has a peak.
+            // Region with insertion or deletion or soft clip that has high indel ratio and has a peak
+            // or drop in coverage and majority of bases are softclipped or indels.
             when(
                 (col("indel").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
                     .gt_eq(lit(cfg.indel.ratio_indel))
-                    .and(col("indel_peak").eq(lit("high"))),
+                    .and(col("indel_peak").eq(lit("high")))
+                    .or(col("cov_peak").eq(lit("low")).and(
+                        ((col("indel") + col("softclip")).cast(DataType::Float32)
+                            / col("cov").cast(DataType::Float32))
+                        .gt(lit(cfg.indel.ratio_indel)),
+                    )),
             )
             .then(lit("indel"))
             .when(
@@ -510,12 +526,8 @@ pub(crate) fn classify_peaks(
             )
             .then(lit("collapse"))
             // misjoin
-            // Regions with zero coverage or drop in coverage and majority of bases are softclipped or indels.
-            .when(
-                col("cov").eq(lit(0)).or(col("cov_peak")
-                    .eq(lit("low"))
-                    .and(((col("indel") + col("softclip")) / col("cov")).gt(lit(0.5)))),
-            )
+            // Regions with zero coverage.
+            .when(col("cov").eq(lit(0)))
             .then(lit("misjoin"))
             // false_dup
             // Region with half of the expected coverage and a maximum mapq of zero due to multiple primary mappings.
@@ -590,6 +602,7 @@ pub(crate) fn classify_peaks(
         }
     };
     /*
+    // TODO: Consolidate zscore based on call.
     // Removed cols to reduce memory consumption.
     col("cov_zscore"),
     col("mismatch_zscore"),
@@ -624,7 +637,8 @@ pub(crate) fn classify_peaks(
                 .rle_id()
                 + col("status").rle_id())
             .alias("group"),
-        )
+        );
+    let df_itvs = df_itvs
         .group_by([col("group")])
         .agg([
             col("pos").min().alias("st"),

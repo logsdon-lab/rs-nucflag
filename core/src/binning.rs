@@ -117,7 +117,6 @@ pub fn group_pileup_by_ani(
         itv_idents.len() + 1
     );
 
-    // TODO: Change to perc identity.
     // Add groups to pileup.
     // N's will cause offset so need to detect overlaps.
     let (ident_groups, ident_values): (Vec<u64>, Vec<f32>) = df
