@@ -98,7 +98,7 @@ impl PileupInfo {
     pub fn median_mapq(&self) -> Option<u8> {
         let length = self.mapq.len();
         let midpt = length / 2;
-        if length % 2 == 0 {
+        if length.is_multiple_of(2) {
             let midpt = midpt.checked_sub(1).map(|midpt| midpt..=midpt)?;
             Some(self.mapq.iter().sorted().get(midpt).sum::<u8>().div_ceil(2))
         } else {
