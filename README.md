@@ -5,13 +5,14 @@ Library to call misassemblies in genome assemblies from long-read alignments.
 
 ## Getting started
 To install the `py_nucflag` library.
+* Requires Git LFS currently.
 ```bash
 pip install git+https://github.com/koisland/rs-nucflag.git#subdirectory=py
 ```
 
 To install the `rs_nucflag` library.
 ```bash
-cargo add --git https://github.com/koisland/rs-nucflag.git --package nucflag
+cargo add --git https://github.com/koisland/rs-nucflag.git rs-nucflag
 ```
 
 > [!NOTE]

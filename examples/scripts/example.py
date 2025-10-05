@@ -10,7 +10,7 @@ def main():
     config = sys.argv[3]
     threads = int(sys.argv[4])
 
-    results = run_nucflag(bam, bed, threads, config)
+    results = run_nucflag(aln=bam, bed=bed, threads=threads, cfg=config)
 
     for res in results:
         print(res.regions)
