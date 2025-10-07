@@ -192,6 +192,9 @@ macro_rules! pileup {
             let pileup_info = &mut $pileup_infos[pos];
 
             match kind {
+                // Deliberate choice to not count deletion towards coverage.
+                // We define coverage as # of reads that support the reference.
+                // If deleted, doesn't support.
                 Kind::Deletion | Kind::Insertion => {
                     pileup_info.n_indel += 1;
                     continue;
@@ -223,8 +226,6 @@ fn cs_to_cigar(cs: &[u8], cg: &[Op]) -> eyre::Result<Vec<Op>> {
     };
     let mut curr_op: Option<DiffToken> = None;
     for (tk, elems) in &cs.iter().chunk_by(|c| Into::<DiffToken>::into(**c)) {
-        let elems: Vec<&u8> = elems.collect();
-
         match (curr_op.as_ref(), &tk) {
             (None, DiffToken::Identical)
             | (None, DiffToken::IdenticalLong)
@@ -238,12 +239,12 @@ fn cs_to_cigar(cs: &[u8], cg: &[Op]) -> eyre::Result<Vec<Op>> {
                 curr_op.take();
             }
             (Some(DiffToken::IdenticalLong), DiffToken::Base) => {
-                new_ops.push(Op::new(Kind::SequenceMatch, elems.len()));
+                new_ops.push(Op::new(Kind::SequenceMatch, elems.count()));
                 curr_op.take();
             }
             (Some(op), DiffToken::Base) => {
                 let op_kind: Kind = op.clone().try_into()?;
-                new_ops.push(Op::new(op_kind, elems.len()));
+                new_ops.push(Op::new(op_kind, elems.count()));
                 curr_op.take();
             }
             (Some(op), DiffToken::Number) => {
