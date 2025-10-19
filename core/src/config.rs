@@ -81,6 +81,7 @@ impl Config {
 pub struct MinimumSizeConfig {
     pub null: usize,
     pub collapse: usize,
+    pub mismatch: usize,
     pub misjoin: usize,
     pub het_mismap: usize,
     pub false_dup: usize,
@@ -104,6 +105,7 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<MisassemblyType, u64> {
             (MisassemblyType::Indel, cfg.indel.try_into()?),
             (MisassemblyType::HetMismap, cfg.het_mismap.try_into()?),
             (MisassemblyType::Misjoin, cfg.misjoin.try_into()?),
+            (MisassemblyType::Mismatch, cfg.mismatch.try_into()?),
             (MisassemblyType::SoftClip, cfg.softclip.try_into()?),
             (
                 MisassemblyType::RepeatError(Repeat::Homopolymer),
@@ -134,6 +136,7 @@ impl Default for MinimumSizeConfig {
         Self {
             null: 1,
             collapse: 500,
+            mismatch: 1,
             misjoin: 1,
             het_mismap: 1,
             false_dup: 500,

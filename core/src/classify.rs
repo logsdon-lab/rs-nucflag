@@ -542,16 +542,20 @@ pub(crate) fn classify_peaks(
             .alias("status"),
         )
         .with_column(
-            // het_mismap
-            // Regions with high mismatch peak and het ratio.
-            when(
-                (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
-                    .gt_eq(lit(cfg.mismatch.ratio_het))
-                    .and(col("mismatch_peak").eq(lit("high"))),
-            )
-            .then(lit("het_mismap"))
-            .otherwise(col("status"))
-            .alias("status"),
+            // mismatch
+            // Region that mismatches the assembly and has non-zero coverage.
+            when(col("cov").eq(col("mismatch")).and(col("cov").neq(lit(0))))
+                .then(lit("mismatch"))
+                // het_mismap
+                // Regions with high mismatch peak and het ratio.
+                .when(
+                    (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                        .gt_eq(lit(cfg.mismatch.ratio_het))
+                        .and(col("mismatch_peak").eq(lit("high"))),
+                )
+                .then(lit("het_mismap"))
+                .otherwise(col("status"))
+                .alias("status"),
         );
 
     let bin_stats = {

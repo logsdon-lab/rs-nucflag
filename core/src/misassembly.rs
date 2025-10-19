@@ -8,6 +8,7 @@ use crate::repeats::Repeat;
 pub enum MisassemblyType {
     HetMismap,
     Indel,
+    Mismatch,
     SoftClip,
     Collapse,
     Misjoin,
@@ -24,6 +25,7 @@ impl MisassemblyType {
             | MisassemblyType::Collapse
             | MisassemblyType::Misjoin => true,
             MisassemblyType::Indel
+            | MisassemblyType::Mismatch
             | MisassemblyType::FalseDup
             | MisassemblyType::RepeatError(_)
             | MisassemblyType::Null => false,
@@ -41,6 +43,9 @@ impl MisassemblyType {
             // Pink
             // #FF0080
             MisassemblyType::HetMismap => "255,0,128",
+            // Dark red
+            // #FF0000
+            MisassemblyType::Mismatch => "255,0,0",
             // Green
             // #00FF00
             MisassemblyType::Collapse => "0,255,0",
@@ -80,6 +85,7 @@ impl From<MisassemblyType> for &'static str {
             MisassemblyType::SoftClip => "softclip",
             MisassemblyType::Collapse => "collapse",
             MisassemblyType::Misjoin => "misjoin",
+            MisassemblyType::Mismatch => "mismatch",
             MisassemblyType::FalseDup => "false_dup",
             MisassemblyType::RepeatError(Repeat::Scaffold) => "scaffold",
             MisassemblyType::RepeatError(Repeat::Homopolymer) => "homopolymer",
@@ -100,6 +106,7 @@ impl FromStr for MisassemblyType {
             "indel" => MisassemblyType::Indel,
             "softclip" => MisassemblyType::SoftClip,
             "misjoin" => MisassemblyType::Misjoin,
+            "mismatch" => MisassemblyType::Mismatch,
             "collapse" => MisassemblyType::Collapse,
             "false_dup" => MisassemblyType::FalseDup,
             "scaffold" => MisassemblyType::RepeatError(Repeat::Scaffold),
@@ -124,6 +131,7 @@ impl Ord for MisassemblyType {
             // Equal if same.
             (MisassemblyType::HetMismap, MisassemblyType::HetMismap)
             | (MisassemblyType::Indel, MisassemblyType::Indel)
+            | (MisassemblyType::Mismatch, MisassemblyType::Mismatch)
             | (MisassemblyType::SoftClip, MisassemblyType::SoftClip)
             | (MisassemblyType::Collapse, MisassemblyType::Collapse)
             | (MisassemblyType::Misjoin, MisassemblyType::Misjoin)
@@ -134,6 +142,9 @@ impl Ord for MisassemblyType {
             // Never merge false dup with others.
             (MisassemblyType::FalseDup, _) => Ordering::Less,
             (_, MisassemblyType::FalseDup) => Ordering::Less,
+            // Never merge mismatch with others.
+            (MisassemblyType::Mismatch, _) => Ordering::Less,
+            (_, MisassemblyType::Mismatch) => Ordering::Less,
             // Indel and het/mismapping will never replace each other.
             (MisassemblyType::HetMismap, _) => Ordering::Less,
             (MisassemblyType::Indel, _) => Ordering::Less,
