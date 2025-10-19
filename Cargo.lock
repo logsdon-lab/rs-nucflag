@@ -2240,6 +2240,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 [[package]]
 name = "rs-moddotplot"
 version = "0.1.0"
+source = "git+https://github.com/logsdon-lab/rs-moddotplot.git?rev=e6439eaf7eeeba8702c12e0e4347c2127974d5f6#e6439eaf7eeeba8702c12e0e4347c2127974d5f6"
 dependencies = [
  "ahash",
  "indexmap",
