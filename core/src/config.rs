@@ -187,8 +187,6 @@ pub struct GeneralConfig {
     /// * If fasta provided, defaults to boundaries of each contig.
     /// * With no fasta, defaults to boundaries of queried region.
     pub ignore_boundaries: bool,
-    /// Only merge identical misassembly types.
-    pub merge_identical: bool,
 }
 
 impl Default for GeneralConfig {
@@ -199,7 +197,6 @@ impl Default for GeneralConfig {
             bp_wg_window: 10_000_000,
             bp_min_aln_length: 1,
             ignore_boundaries: false,
-            merge_identical: true,
         }
     }
 }

@@ -9,7 +9,7 @@ use crate::{
     misassembly::MisassemblyType,
     repeats::{detect_largest_repeat, Repeat},
 };
-use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
+use coitrees::{COITree, Interval, IntervalTree};
 use eyre::bail;
 use itertools::{multizip, Itertools};
 use polars::{frame::row::Row, prelude::*};
@@ -219,16 +219,8 @@ pub(crate) fn merge_misassemblies(
             )
         }),
         bp_merge,
-        |_, _| true,
-        |itv_1, itv_2| {
-            let largest_itv = std::cmp::max_by(itv_1, itv_2, |itv_1, itv_2| {
-                itv_1.metadata.0.cmp(&itv_2.metadata.0)
-            });
-            (
-                largest_itv.metadata.0,
-                (itv_1.metadata.1 + itv_2.metadata.1) / 2,
-            )
-        },
+        |a, b| a.metadata.0 == b.metadata.0,
+        |itv_1, itv_2| (itv_1.metadata.0, (itv_1.metadata.1 + itv_2.metadata.1) / 2),
         |itv| itv,
     );
     let final_misasm_itvs: COITree<(MisassemblyType, u32), usize> =
@@ -404,28 +396,14 @@ pub(crate) fn merge_misassemblies(
         Interval::new(a.first, a.last, (status, a.metadata.1))
     };
     // Remove intervals not within minimum sizes after merging.
-    let minmax_reclassified_itvs_all = if cfg.general.merge_identical {
-        // Merge identical misassembled regions that are bookended or overlapping.
-        merge_intervals(
-            minmax_reclassified_itvs_all.into_iter(),
-            1,
-            |a, b| a.metadata.0 == b.metadata.0,
-            |a, b| (a.metadata.0, (a.metadata.1 + b.metadata.1) / 2),
-            fn_finalizer,
-        )
-    } else {
-        // Merge book-ended or overlapping misassembled regions.
-        merge_intervals(
-            minmax_reclassified_itvs_all.into_iter(),
-            1,
-            |a, b| a.metadata.0 != MisassemblyType::Null && b.metadata.0 != MisassemblyType::Null,
-            |a, b| {
-                let largest_itv = std::cmp::max_by(a, b, |a, b| a.len().cmp(&b.len()));
-                (largest_itv.metadata.0, (a.metadata.1 + b.metadata.1) / 2)
-            },
-            fn_finalizer,
-        )
-    };
+    // Then, remerge intervals.
+    let minmax_reclassified_itvs_all = merge_intervals(
+        minmax_reclassified_itvs_all.into_iter(),
+        1,
+        |a, b| a.metadata.0 == b.metadata.0,
+        |a, b| (a.metadata.0, (a.metadata.1 + b.metadata.1) / 2),
+        fn_finalizer,
+    );
 
     let minmax_reclassified_itvs_all: Vec<Row> = minmax_reclassified_itvs_all
         .into_iter()
@@ -459,8 +437,9 @@ pub(crate) fn merge_misassemblies(
         .with_column(col("status").rle_id().alias("group"))
         .group_by(["group"])
         .agg([
-            col("st").min(),
-            col("end").max(),
+            // Offset by 1 to match IGV coordinates.
+            (col("st").min() - lit(1)).clip_min(lit(0)),
+            (col("end").max() - lit(1)).clip_min(lit(0)),
             col("cov").median().cast(DataType::UInt32),
             col("status").first(),
         ])

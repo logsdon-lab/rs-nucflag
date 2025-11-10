@@ -217,12 +217,12 @@ where
                 .alias("itemRgb"),
         ])
         .rename(
-            ["st", "end", "status", "cov"],
-            ["chromStart", "chromEnd", "name", "score"],
+            ["chrom", "st", "end", "status", "cov"],
+            ["#chrom", "chromStart", "chromEnd", "name", "score"],
             true,
         )
         .select([
-            col("chrom"),
+            col("#chrom"),
             col("chromStart"),
             col("chromEnd"),
             col("name"),
