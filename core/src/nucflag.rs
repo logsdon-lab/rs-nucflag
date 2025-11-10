@@ -237,7 +237,7 @@ where
     let (n_misassemblies, _) = df_itvs_final
         .select(["name"])?
         .lazy()
-        .filter(col("name").neq(lit("good")))
+        .filter(col("name").neq(lit("correct")))
         .collect()?
         .shape();
 

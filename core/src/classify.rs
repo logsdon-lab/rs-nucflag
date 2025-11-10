@@ -199,7 +199,7 @@ pub(crate) fn merge_misassemblies(
     let df_misasm_itvs = df_itvs
         .clone()
         .lazy()
-        .filter(col("status").neq(lit("good")))
+        .filter(col("status").neq(lit("correct")))
         .collect()?;
 
     // TODO: Rewrite merging function to merge over three intervals
@@ -412,7 +412,7 @@ pub(crate) fn merge_misassemblies(
                 AnyValue::Int32(itv.first),
                 AnyValue::Int32(itv.last),
                 AnyValue::String(if itv.metadata.0 == MisassemblyType::Null {
-                    "good"
+                    "correct"
                 } else {
                     itv.metadata.0.into()
                 }),
@@ -486,7 +486,7 @@ pub(crate) fn classify_peaks(
                     .and(col("softclip_peak").eq(lit("high"))),
             )
             .then(lit("softclip"))
-            .otherwise(lit("good"))
+            .otherwise(lit("correct"))
             .alias("status"),
         )
         .with_column(
@@ -547,8 +547,8 @@ pub(crate) fn classify_peaks(
         let itree_above_median_cov = get_itree_above_median(lf_pileup.clone(), median_cov)?;
         let df_bin_stats = lf_pileup
             .clone()
-            // Only use good regions for bin stats.
-            .filter(col("status").eq(lit("good")))
+            // Only use correct regions for bin stats.
+            .filter(col("status").eq(lit("correct")))
             .with_columns([
                 col("cov")
                     .rolling_median(rolling_opts.clone())

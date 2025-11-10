@@ -1,2 +1,2 @@
 #chrom	chromStart	chromEnd	name	score	strand	thickStart	thickEnd	itemRgb
-NA24385_chr10_haplotype1-0000009	38656715	42854115	good	68	.	38656715	42854115	206,206,206
+NA24385_chr10_haplotype1-0000009	38656715	42854115	correct	68	.	38656715	42854115	206,206,206
