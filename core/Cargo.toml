@@ -18,7 +18,7 @@ eyre = "0.6.12"
 itertools = "0.14.0"
 log = { version = "0.4.25", features = ["serde"] }
 noodles = { version = "0.96.0", features = ["bam", "bgzf", "core", "cram", "fasta", "sam"] }
-polars = { version = "0.46.0", features = ["dtype-u8", "lazy", "rank", "abs", "rle", "round_series", "rolling_window", "partition_by"] }
+polars = { version = "0.52.0", features = ["dtype-u8", "lazy", "rank", "abs", "rle", "round_series", "rolling_window", "partition_by"] }
 rayon = "1.10.0"
 rs-moddotplot = { git = "https://github.com/logsdon-lab/rs-moddotplot.git", rev = "e6439eaf7eeeba8702c12e0e4347c2127974d5f6", version = "0.1.0" }
 serde = "1.0.217"
