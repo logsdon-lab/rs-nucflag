@@ -40,7 +40,10 @@ fn nucflag_grp(
         cfg.mismatch.n_zscores_high,
         true,
     )?
-    .drop(["mismatch"]);
+    .drop(Selector::ByName {
+        names: Arc::new(["mismatch".into()]),
+        strict: true,
+    });
     // Detect indel peaks.
     let lf_indel_peaks = find_peaks(
         df_pileup.select(["pos", "indel"])?,
@@ -49,7 +52,10 @@ fn nucflag_grp(
         cfg.indel.n_zscores_high,
         true,
     )?
-    .drop(["indel"]);
+    .drop(Selector::ByName {
+        names: Arc::new(["indel".into()]),
+        strict: true,
+    });
     // Detect softclip peaks.
     let lf_softclip_peaks = find_peaks(
         df_pileup.select(["pos", "softclip"])?,
@@ -58,7 +64,10 @@ fn nucflag_grp(
         cfg.softclip.n_zscores_high,
         true,
     )?
-    .drop(["softclip"]);
+    .drop(Selector::ByName {
+        names: Arc::new(["softclip".into()]),
+        strict: true,
+    });
 
     // Detect mapq dips.
     let lf_mapq_dips = find_peaks(
@@ -202,7 +211,7 @@ where
             col("status")
                 .map(
                     |statuses| {
-                        Ok(Some(Column::new(
+                        Ok(Column::new(
                             "itemRgb".into(),
                             statuses
                                 .str()?
@@ -210,9 +219,9 @@ where
                                 .flatten()
                                 .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
                                 .collect::<Vec<&str>>(),
-                        )))
+                        ))
                     },
-                    SpecialEq::same_type(),
+                    |_schema, field| Ok(field.clone()),
                 )
                 .alias("itemRgb"),
         ])

@@ -630,7 +630,10 @@ pub(crate) fn classify_peaks(
             col("status").first(),
             col("bin").first(),
         ])
-        .drop([col("group")])
+        .drop(Selector::ByName {
+            names: Arc::new(["group".into()]),
+            strict: true,
+        })
         .collect()?;
 
     Ok((df_itvs, df_pileup, bin_stats))
