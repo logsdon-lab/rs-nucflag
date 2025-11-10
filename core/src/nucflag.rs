@@ -32,6 +32,7 @@ fn nucflag_grp(
         cfg.cov.n_zscores_low,
         cfg.cov.n_zscores_high,
         false,
+        true,
     )?;
     // Call peaks in mismatch-base signal.
     let lf_mismatch_peaks = find_peaks(
@@ -39,11 +40,8 @@ fn nucflag_grp(
         cfg.mismatch.n_zscores_high,
         cfg.mismatch.n_zscores_high,
         true,
-    )?
-    .drop(Selector::ByName {
-        names: Arc::new(["mismatch".into()]),
-        strict: true,
-    });
+        false,
+    )?;
     // Detect indel peaks.
     let lf_indel_peaks = find_peaks(
         df_pileup.select(["pos", "indel"])?,
@@ -51,11 +49,8 @@ fn nucflag_grp(
         cfg.indel.n_zscores_high,
         cfg.indel.n_zscores_high,
         true,
-    )?
-    .drop(Selector::ByName {
-        names: Arc::new(["indel".into()]),
-        strict: true,
-    });
+        false,
+    )?;
     // Detect softclip peaks.
     let lf_softclip_peaks = find_peaks(
         df_pileup.select(["pos", "softclip"])?,
@@ -63,11 +58,8 @@ fn nucflag_grp(
         cfg.softclip.n_zscores_high,
         cfg.softclip.n_zscores_high,
         true,
-    )?
-    .drop(Selector::ByName {
-        names: Arc::new(["softclip".into()]),
-        strict: true,
-    });
+        false,
+    )?;
 
     // Detect mapq dips.
     let lf_mapq_dips = find_peaks(
@@ -75,6 +67,7 @@ fn nucflag_grp(
         // Don't care about peaks in mapq.
         cfg.mapq.n_zscores_low,
         cfg.mapq.n_zscores_low,
+        false,
         false,
     )?;
 

@@ -6,6 +6,7 @@ pub fn find_peaks(
     n_zscore_low: f32,
     n_zscore_high: f32,
     drop_zeroes: bool,
+    keep_col: bool,
 ) -> eyre::Result<LazyFrame> {
     assert_eq!(
         df_pileup.get_column_names().len(),
@@ -67,11 +68,18 @@ pub fn find_peaks(
                 .alias(&peak_col),
         );
 
-    // Go back to u64
-    Ok(lf_pileup.cast(
-        PlHashMap::from_iter([(colname.as_str(), DataType::UInt64)]),
-        true,
-    ))
+    if keep_col {
+        // Go back to u64
+        Ok(lf_pileup.cast(
+            PlHashMap::from_iter([(colname.as_str(), DataType::UInt64)]),
+            true,
+        ))
+    } else {
+        Ok(lf_pileup.drop(Selector::ByName {
+            names: Arc::new([colname.into()]),
+            strict: true,
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -88,7 +96,10 @@ mod test {
         )
         .unwrap();
 
-        let df_peaks = find_peaks(df, 1.5, 1.5, false).unwrap().collect().unwrap();
+        let df_peaks = find_peaks(df, 1.5, 1.5, false, true)
+            .unwrap()
+            .collect()
+            .unwrap();
         let peaks = df_peaks.column("first_peak").unwrap();
         assert_eq!(
             vec!["null", "high", "null", "low", "null"],
