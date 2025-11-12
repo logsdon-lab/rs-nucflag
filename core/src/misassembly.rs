@@ -40,18 +40,18 @@ impl MisassemblyType {
             // Teal
             // #80FFFF
             MisassemblyType::SoftClip => "0,255,255",
-            // Pink
-            // #FF0080
-            MisassemblyType::HetMismap => "255,0,128",
+            // Camoflauge green
+            // #798564
+            MisassemblyType::HetMismap => "121,133,100",
             // Dark red
-            // #FF0000
-            MisassemblyType::Mismatch => "255,0,0",
+            // #FF8000
+            MisassemblyType::Mismatch => "255,128,0",
             // Green
             // #00FF00
             MisassemblyType::Collapse => "0,255,0",
             // Orange
-            // #FF8000
-            MisassemblyType::Misjoin => "255,128,0",
+            // #BF1A2E
+            MisassemblyType::Misjoin => "191,26,46",
             // Blue
             // #0000FF
             MisassemblyType::FalseDup => "0,0,255",
@@ -64,9 +64,9 @@ impl MisassemblyType {
             // Prussian Blue
             // #003153
             MisassemblyType::RepeatError(Repeat::Dinucleotide) => "0,49,83",
-            // Dark green
-            // #336600
-            MisassemblyType::RepeatError(Repeat::Simple) => "51,102,0",
+            // Pink
+            // #FF0080
+            MisassemblyType::RepeatError(Repeat::Simple) => "255,0,128",
             // Dirt
             // #9b7653
             MisassemblyType::RepeatError(Repeat::Other) => "155,118,83",

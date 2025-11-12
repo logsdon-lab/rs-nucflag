@@ -1,4 +1,3 @@
-use core::str;
 use std::{collections::HashMap, fmt::Debug, path::Path, str::FromStr};
 
 use crate::{
@@ -112,7 +111,8 @@ fn ignore_boundary_misassemblies(
         })
         .unwrap_or(default_boundary_positions);
 
-    // Keep going if below median in both directions.
+    // Keep going if below median - 1 stdev in both directions.
+    // * Due to new merging rules, we cannot rely on presence of null to stop.
     // With median of 8x
     // coverage  0 1 2 8  8  8 3 0
     // status  | x x x o ... o x x |
@@ -129,7 +129,7 @@ fn ignore_boundary_misassemblies(
         // Keep removing while below median and not a good interval.
         while let Some(itv) = itvs.get_mut(idx_st).filter(|itv| {
             let bin = &bin_stats[&itv.metadata.2];
-            itv.metadata.1 < bin.median as u32 && itv.metadata.0 != MisassemblyType::Null
+            itv.metadata.1 < (bin.median - bin.stdev).clamp(0.0, f32::MAX) as u32
         }) {
             let og_mdata = itv.metadata;
             log::debug!("Filtered out {:?}: {ctg}:{}-{} at contig start with coverage ({}) below bin median {:?}", og_mdata.0, itv.first, itv.last, og_mdata.1, &bin_stats[&og_mdata.2]);
@@ -149,7 +149,7 @@ fn ignore_boundary_misassemblies(
     {
         while let Some(itv) = itvs.get_mut(idx_end).filter(|itv| {
             let bin = &bin_stats[&itv.metadata.2];
-            itv.metadata.1 < bin.median as u32 && itv.metadata.0 != MisassemblyType::Null
+            itv.metadata.1 < (bin.median - bin.stdev).clamp(0.0, f32::MAX) as u32
         }) {
             let og_mdata = itv.metadata;
             log::debug!(

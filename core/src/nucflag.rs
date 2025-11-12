@@ -68,7 +68,7 @@ fn nucflag_grp(
         cfg.mapq.n_zscores_low,
         cfg.mapq.n_zscores_low,
         false,
-        false,
+        true,
     )?;
 
     let lf_pileup = lf_cov_peaks

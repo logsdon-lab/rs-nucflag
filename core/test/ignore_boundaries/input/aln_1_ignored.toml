@@ -1,10 +1,9 @@
 [general]
-log_level = "info"
+log_level = "debug"
 bp_merge = 5_000
 bp_wg_window = 10_000_000
 bp_min_aln_length = 0
 ignore_boundaries = true
-merge_identical = true
 
 [mapq]
 n_zscores_low = 1.5

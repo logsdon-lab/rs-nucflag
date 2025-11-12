@@ -20,7 +20,7 @@ log = { version = "0.4.25", features = ["serde"] }
 noodles = { version = "0.96.0", features = ["bam", "bgzf", "core", "cram", "fasta", "sam"] }
 # TODO: Remove timezones feature when fixed.
 # https://github.com/pola-rs/polars/issues/25148
-polars = { version = "0.52.0", features = ["dtype-u8", "lazy", "rank", "abs", "rle", "round_series", "rolling_window", "partition_by", "timezones"] }
+polars = { version = "0.52.0", features = ["dtype-u8", "lazy", "abs", "rle", "round_series", "rolling_window", "partition_by", "timezones"] }
 rayon = "1.10.0"
 rs-moddotplot = { git = "https://github.com/logsdon-lab/rs-moddotplot.git", rev = "e6439eaf7eeeba8702c12e0e4347c2127974d5f6", version = "0.1.0" }
 serde = "1.0.217"
