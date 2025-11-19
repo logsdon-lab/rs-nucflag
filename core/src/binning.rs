@@ -44,16 +44,19 @@ pub fn group_pileup_by_ani(
     cfg: &GroupByANIConfig,
 ) -> eyre::Result<DataFrame> {
     let ctg = itv.metadata.clone();
-    let (st, end): (i32, i32) = (itv.first.clamp(1, i32::MAX), itv.last);
+    let (st, end): (i32, i32) = (itv.first, itv.last);
     let window_size = cfg.window_size;
     let min_grp_size = cfg.min_grp_size;
     let min_ident = cfg.min_ident;
 
     let mut reader_fasta = FastaHandle::new(fasta)?;
-    let seq = reader_fasta.fetch(&ctg, st as u32, end as u32)?;
+    let seq = reader_fasta.fetch(&ctg, st as usize, end as usize)?;
 
     let itv_idents: COITree<(u64, f32), usize> = {
-        log::info!("Calculating self-identity for {ctg}:{st}-{end} to bin region.");
+        log::info!(
+            "Calculating self-identity for {ctg}:{}-{end} to bin region.",
+            st - 1
+        );
         let bed_ident = compute_seq_self_identity(
             str::from_utf8(seq.sequence().as_ref())?,
             &itv.metadata,
@@ -62,7 +65,7 @@ pub fn group_pileup_by_ani(
                 ..Default::default()
             }),
         );
-        log::info!("Grouping repetitive intervals in {ctg}:{st}-{end}.");
+        log::info!("Grouping repetitive intervals in {ctg}:{}-{end}.", st - 1);
         let bed_group_ident = compute_group_seq_self_identity(&bed_ident);
 
         let mut itvs: VecDeque<Interval<(u64, f32)>> = bed_group_ident
@@ -113,7 +116,8 @@ pub fn group_pileup_by_ani(
         COITree::new(&final_itvs)
     };
     log::info!(
-        "Detected {} region(s) in {ctg}:{st}-{end}.",
+        "Detected {} region(s) in {ctg}:{}-{end}.",
+        st - 1,
         itv_idents.len() + 1
     );
 

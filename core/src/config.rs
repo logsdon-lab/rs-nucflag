@@ -223,7 +223,7 @@ impl Default for CoverageConfig {
         Self {
             n_zscores_high: 3.5,
             n_zscores_low: 2.0,
-            ratio_collapse: 1.5,
+            ratio_collapse: 2.0,
             ratio_false_dup: 0.5,
             rolling_mean_window: None,
             baseline: None,

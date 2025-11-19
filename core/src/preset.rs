@@ -50,7 +50,6 @@ impl From<Preset> for Config {
                     // Dips tend to be less prominent due to avg length or read.
                     n_zscores_high: 4.0,
                     n_zscores_low: 1.0,
-                    ratio_collapse: 1.5,
                     rolling_mean_window: Some(11),
                     ..Default::default()
                 },
@@ -70,7 +69,6 @@ impl From<Preset> for Config {
                 cov: CoverageConfig {
                     n_zscores_high: 4.0,
                     n_zscores_low: 1.0,
-                    ratio_collapse: 1.5,
                     rolling_mean_window: Some(3),
                     ..Default::default()
                 },

@@ -11,6 +11,7 @@ use eyre::Context;
 use itertools::Itertools;
 use noodles::{
     bgzf::{self, IndexedReader},
+    core::{Position, Region},
     fasta,
 };
 use polars::prelude::*;
@@ -181,10 +182,15 @@ impl FastaHandle {
         }
     }
 
-    pub fn fetch(&mut self, ctg_name: &str, start: u32, stop: u32) -> eyre::Result<fasta::Record> {
-        let start_pos = noodles::core::Position::new(start.clamp(1, u32::MAX) as usize).unwrap();
-        let stop_pos = noodles::core::Position::new(stop.clamp(1, u32::MAX) as usize).unwrap();
-        let region = noodles::core::Region::new(ctg_name, start_pos..=stop_pos);
+    pub fn fetch(
+        &mut self,
+        ctg_name: &str,
+        start: usize,
+        stop: usize,
+    ) -> eyre::Result<fasta::Record> {
+        let start_pos = Position::new(start.clamp(1, usize::MAX)).unwrap();
+        let stop_pos = Position::new(stop.clamp(1, usize::MAX)).unwrap();
+        let region = Region::new(ctg_name, start_pos..=stop_pos);
         match &mut self.reader {
             FastaReader::Bgzip(reader) => Ok(reader.query(&self.fai, &region)?),
             FastaReader::Standard(reader) => Ok(reader.query(&self.fai, &region)?),

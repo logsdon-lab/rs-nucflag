@@ -325,15 +325,17 @@ impl AlignmentFile {
         min_del_size: usize,
         min_aln_length: usize,
     ) -> eyre::Result<PileupSummary> {
-        let st = TryInto::<usize>::try_into(itv.first)?.clamp(1, usize::MAX);
+        let st: usize = itv.first.try_into()?;
         let end: usize = itv.last.try_into()?;
+        // coitrees len is range exclusive
+        // noodles is range inclusive.
         let length = itv.len();
         // Query entire contig.
         let region = Region::new(
             &*itv.metadata,
-            Position::try_from(st)?..=Position::try_from(end)?,
+            Position::try_from(st)?..=Position::try_from(end.saturating_sub(1))?,
         );
-        log::info!("Generating pileup over {}:{st}-{end}.", region.name());
+        log::info!("Generating pileup over {}:{}-{end}.", region.name(), st - 1);
 
         let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length.try_into()?];
         // Reduce some redundancy with macro.
@@ -386,7 +388,7 @@ impl AlignmentFile {
                 }
             }
         }
-        log::info!("Finished pileup over {}:{st}-{end}.", region.name());
+        log::info!("Finished pileup over {}:{}-{end}.", region.name(), st - 1);
 
         Ok(PileupSummary {
             region,
@@ -397,8 +399,7 @@ impl AlignmentFile {
 
 pub(crate) fn merge_pileup_info(
     pileup: Vec<PileupInfo>,
-    st: u64,
-    end: u64,
+    itv: &Interval<String>,
     cfg: &Config,
 ) -> eyre::Result<DataFrame> {
     let (
@@ -432,7 +433,10 @@ pub(crate) fn merge_pileup_info(
         softclip_cnts.push(p.n_softclip);
     }
     let mut lf = DataFrame::new(vec![
-        Column::new("pos".into(), st..end + 1),
+        Column::new(
+            "pos".into(),
+            TryInto::<u64>::try_into(itv.first)?..TryInto::<u64>::try_into(itv.last + 1)?,
+        ),
         Column::new("cov".into(), cov_cnts),
         Column::new("mismatch".into(), mismatch_cnts),
         Column::new("mapq_max".into(), mapq_max_cnts),
@@ -577,7 +581,7 @@ mod test {
             PileupSummary {
                 region: Region::new(
                     "K1463_2281_chr15_contig-0000423",
-                    Position::new(9667238).unwrap()..=Position::new(9667240).unwrap()
+                    Position::new(9667238).unwrap()..=Position::new(9667239).unwrap()
                 ),
                 pileups: [
                     PileupInfo {
@@ -633,8 +637,7 @@ mod test {
         let res = bam.pileup(&itv, 1, 1, 0).unwrap();
 
         let config = Config::default();
-        let df_pileup =
-            merge_pileup_info(res.pileups, itv.first as u64, itv.last as u64, &config).unwrap();
+        let df_pileup = merge_pileup_info(res.pileups, &itv, &config).unwrap();
         assert_eq!(
             df_pileup,
             df!(

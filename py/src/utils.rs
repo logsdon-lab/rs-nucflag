@@ -28,7 +28,8 @@ pub(crate) fn get_whole_genome_intervals(
             );
             (1..num + 1)
                 .map(move |i| {
-                    // One-based half closed, half open intervals
+                    // One-based half closed, half open intervals due to noodles
+                    // Corrected downstream.
                     Interval::new(
                         (((i - 1) * window) + 1) as i32,
                         (i * window) as i32,
@@ -45,14 +46,34 @@ pub(crate) fn get_aln_intervals(
     bed: Option<&str>,
     bp_wg_window: usize,
 ) -> Result<Vec<Interval<String>>, PyErr> {
+    let all_intervals = get_whole_genome_intervals(aln, bp_wg_window)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+
     if let Some(bed) = bed {
-        Ok(read_bed(bed, |name, st, end, _| {
+        let all_intervals_map: HashMap<String, Interval<String>> = all_intervals
+            .into_iter()
+            .map(|itv| (itv.metadata.clone(), itv))
+            .collect();
+        let valid_bed_intervals = read_bed(bed, |name, st, end, _| {
             Interval::new(st as i32, end as i32, name.to_owned())
         })
-        .ok_or_else(|| PyValueError::new_err(format!("Unable to read intervals from {bed}")))?)
+        .map(|itvs| {
+            itvs.into_iter()
+                .filter_map(|itv| {
+                    if let Some(itv_seq_bounds) = all_intervals_map.get(&itv.metadata) {
+                        let new_first = itv.first.clamp(0, itv_seq_bounds.last);
+                        let new_last = itv.last.clamp(0, itv_seq_bounds.last);
+                        Some(Interval::new(new_first, new_last, itv.metadata))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .ok_or_else(|| PyValueError::new_err(format!("Unable to read intervals from {bed}")))?;
+        Ok(valid_bed_intervals)
     } else {
-        Ok(get_whole_genome_intervals(aln, bp_wg_window)
-            .map_err(|err| PyValueError::new_err(err.to_string()))?)
+        Ok(all_intervals)
     }
 }
 

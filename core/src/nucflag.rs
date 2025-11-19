@@ -124,7 +124,9 @@ fn nucflag_grp(
 /// * `aln`: Input BAM/CRAM file path. Should be indexed.
 /// * `fasta`: Input fasta file path. Used for region binning and repeat detection.
 /// * `itv`: Interval to check.
-/// * `ignore_itvs`: Intervals to ignore. NOTE: Interval's metadata is not checked.
+///     * __NOTE__: If `itv` does not intersect an aligned region, it will be marked as a misjoin.
+/// * `ignore_itvs`: Intervals to ignore.
+///     * __NOTE__: Interval metadata is not checked.
 /// * `cfg`: Peak-calling configuration. See [`Preset`] for configuration based on sequencing data type.
 ///
 /// # Returns
@@ -140,19 +142,24 @@ where
     A: AsRef<Path> + Debug,
     F: AsRef<Path> + Clone + Debug,
 {
-    let ctg = itv.metadata.clone();
-    let (st, end) = (itv.first.try_into()?, itv.last.try_into()?);
+    // noodles requires 1-start
+    let itv = Interval::new(itv.first.clamp(1, i32::MAX), itv.last, itv.metadata.clone());
+    let ctg = &itv.metadata;
 
     let mut aln = AlignmentFile::new(aln)?;
     let pileup = aln.pileup(
-        itv,
+        &itv,
         cfg.indel.min_ins_size,
         cfg.indel.min_del_size,
         cfg.general.bp_min_aln_length,
     )?;
 
-    let df_raw_pileup = merge_pileup_info(pileup.pileups, st, end, &cfg)?;
-    log::info!("Detecting peaks/valleys in {ctg}:{st}-{end}.");
+    let df_raw_pileup = merge_pileup_info(pileup.pileups, &itv, &cfg)?;
+    log::info!(
+        "Detecting peaks/valleys in {ctg}:{}-{}.",
+        itv.first - 1,
+        itv.last
+    );
 
     let df_pileup_groups = if let (Some(fasta), Some(cfg_grp_by_ani)) = (
         fasta.clone(),
@@ -160,7 +167,7 @@ where
             .as_ref()
             .filter(|cfg| cfg.window_size < (itv.last - itv.first) as usize),
     ) {
-        group_pileup_by_ani(df_raw_pileup, fasta, itv, cfg_grp_by_ani)?
+        group_pileup_by_ani(df_raw_pileup, fasta, &itv, cfg_grp_by_ani)?
             .partition_by(["bin"], true)?
     } else {
         vec![df_raw_pileup
@@ -176,8 +183,7 @@ where
         df_pileup_groups
             .into_par_iter()
             .map(|df_pileup_grp| {
-                let (df_itv, df_pileup, bin_stats) =
-                    nucflag_grp(df_pileup_grp, &cfg, &ctg).unwrap();
+                let (df_itv, df_pileup, bin_stats) = nucflag_grp(df_pileup_grp, &cfg, ctg).unwrap();
                 (df_itv.lazy(), (df_pileup.lazy(), bin_stats))
             })
             .unzip();
@@ -193,8 +199,8 @@ where
         .collect()?;
 
     // Then merge and filter.
-    log::info!("Merging intervals in {ctg}:{st}-{end}.");
-    let df_itvs_final = merge_misassemblies(df_itvs, bin_stats, &ctg, fasta, ignore_itvs, cfg)?
+    log::info!("Merging intervals in {ctg}:{}-{}.", itv.first - 1, itv.last);
+    let df_itvs_final = merge_misassemblies(df_itvs, bin_stats, ctg, fasta, ignore_itvs, cfg)?
         .with_columns([
             lit(ctg.clone()).alias("chrom"),
             col("st").alias("thickStart"),
@@ -243,7 +249,11 @@ where
         .collect()?
         .shape();
 
-    log::info!("Detected {n_misassemblies} misassemblies for {ctg}:{st}-{end}.",);
+    log::info!(
+        "Detected {n_misassemblies} misassemblies for {ctg}:{}-{}.",
+        itv.first - 1,
+        itv.last
+    );
     Ok(NucFlagResult {
         pileup: df_pileup,
         regions: df_itvs_final,
