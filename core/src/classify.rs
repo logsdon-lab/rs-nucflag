@@ -360,15 +360,17 @@ pub(crate) fn merge_misassemblies(
             //    ____
             //  _/    \____
             // /           \
-            let bin_stats = &bin_stats[&bin];
-            if agg_status == MisassemblyType::Collapse
-                && bin_stats
-                    .itree_above_median
-                    .query_count(agg_st, agg_end)
-                    .ge(&1)
-            {
-                log::debug!("Filtered out {agg_status:?}: {ctg}:{}-{agg_end} above median coverage at bin transition ({bin_stats:?})", agg_st - 1);
-                agg_status = MisassemblyType::Null;
+            // Can possibly have no bin if entire region is misassembled.
+            if let Some(bin_stats) = bin_stats.get(&bin) {
+                if agg_status == MisassemblyType::Collapse
+                    && bin_stats
+                        .itree_above_median
+                        .query_count(agg_st, agg_end)
+                        .ge(&1)
+                {
+                    log::debug!("Filtered out {agg_status:?}: {ctg}:{}-{agg_end} above median coverage at bin transition ({bin_stats:?})", agg_st - 1);
+                    agg_status = MisassemblyType::Null;
+                }
             }
 
             minmax_reclassified_itvs_all.push(Interval::new(
