@@ -333,7 +333,8 @@ impl AlignmentFile {
         // Query entire contig.
         let region = Region::new(
             &*itv.metadata,
-            Position::try_from(st)?..=Position::try_from(end.saturating_sub(1))?,
+            Position::try_from(st)?
+                ..=Position::try_from(end.saturating_sub(1).clamp(1, usize::MAX))?,
         );
         log::info!("Generating pileup over {}:{}-{end}.", region.name(), st - 1);
 
