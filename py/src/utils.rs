@@ -22,7 +22,7 @@ pub(crate) fn get_whole_genome_intervals(
             let (num, rem) = (length / window, length % window);
             let final_start = num * window;
             let final_itv = Interval::new(
-                final_start as i32,
+                (final_start + 1) as i32,
                 (final_start + rem) as i32,
                 ctg_name.clone(),
             );
