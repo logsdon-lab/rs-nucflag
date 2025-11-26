@@ -21,15 +21,78 @@ pub struct PyNucFlagResult {
     /// End of region.
     #[pyo3(get)]
     pub end: i32,
-    /// Pileup of regions.
+    /// Pileup of region with columns:
+    /// * `chrom`
+    ///     * Chromosome name
+    /// * `pos`
+    ///     * Position
+    /// * `cov`
+    ///     * Coverage
+    /// * `status`
+    ///     * Status
+    /// * `mismatch`
+    ///     * Number of mismatches
+    /// * `mapq`
+    ///     * MAPQ
+    /// * `indel`
+    ///     * Number of insertions and deletions
+    /// * `softclip`
+    ///     * Number of softclipped bases
+    /// * `bin`
+    ///     * Region number.
+    ///     * 0 if non-repetitive and some number if repetitive
+    /// * `bin_ident`
+    ///     * Self-sequence identity of region.
+    ///     * 0.0 if non-repetitive
     #[pyo3(get)]
     pub pileup: PyDataFrame,
-    /// Regions and their status.
+    /// Regions and their status in BED9 format:
+    /// * `#chrom`
+    ///     * Chromosome name
+    /// * `chromStart`
+    ///     * Chromosome start
+    /// * `chromEnd`
+    ///     * Chromosome end
+    /// * `name`
+    ///     * Name of status.
+    /// * `score`
+    ///     * Coverage of region.
+    /// * `strand`
+    ///     * None or `.`
+    /// * `thickStart`
+    ///     * Same as `chromEnd`
+    /// * `thickEnd`
+    ///     * Same as `chromStart`
+    /// * `itemRgb`
+    ///     * Color of status
     #[pyo3(get)]
     pub regions: PyDataFrame,
 }
 
 /// Get interval regions from an alignment file or bed file.
+///
+/// # Args
+/// * `aln`
+///     * Alignment as BAM or CRAM file.
+/// * `bed`
+///     * BED file with coordinates.
+///     * If not provided, splits all regions listed in `aln` header (`@SQ`) into non-overlapping windows.
+///     * Invalid intervals are ignored.
+/// * `window`
+///     * Window size in base pairs of non-overlapping windows if `bed` not provided.
+///
+/// # Returns
+/// * List of intervals as tuples with the format, start, end, and chromosome name.
+///
+/// # Example
+/// ```python
+/// from py_nucflag import get_regions
+///
+/// # Get all possible aligned regions
+/// regions = get_regions("aln.bam", window = 10_000_000)
+/// # Get regions in bed file and verify that exist from alignment header.
+/// regions_bed = get_regions("aln.bam", bed="regions.bed")
+/// ```
 #[pyfunction]
 #[pyo3(signature = (aln, bed = None, window = 10_000_000))]
 fn get_regions(aln: &str, bed: Option<&str>, window: usize) -> PyResult<Vec<(i32, i32, String)>> {
@@ -40,6 +103,18 @@ fn get_regions(aln: &str, bed: Option<&str>, window: usize) -> PyResult<Vec<(i32
 }
 
 /// Classify a missassembly for one interval. Identical to `run_nucflag` but only for one interval.
+///
+/// # Example
+/// ```python
+/// from py_nucflag import run_nucflag_itv
+///
+/// # Run on alignments to a single interval.
+/// result = run_nucflag_itv(
+///     "sample.bam",
+///     itv=(0, 1_000_000), "chr1"),
+///     fasta="sample.fa.gz"
+/// )
+/// print(result.regions)
 #[pyfunction]
 #[pyo3(signature = (aln, itv, fasta = None, ignore_bed = None, threads = 1, cfg = None, preset = None))]
 fn run_nucflag_itv(
@@ -74,22 +149,40 @@ fn run_nucflag_itv(
         .map_err(|err| PyValueError::new_err(err.to_string()))
 }
 
-/// Print config from preset.
+/// Return `NucFlag` config as TOML string from preset.
+///
+/// # Args
+/// * `preset`
+///     * `NucFlag` preset.
+///     * Either `ont_r9`, `ont_r10`, or `hifi`
+/// * `config`
+///     * Path to configfile.
+///     * If provided alongside `preset`, `preset` fields given priority.
+///
+/// # Returns
+/// * Configuration as a TOML string.
+///
+/// # Example
+/// ```python
+/// from py_nucflag import get_config_from_preset
+///
+/// # Get preset parameters
+/// config = get_config_from_preset(preset="hifi")
+///
+/// # Read in existing config and merge with preset parameters.
+/// config_w_preset = get_config_from_preset(preset="ont_r10", cfg="config.toml")
 #[pyfunction]
 #[pyo3(signature = (preset = None, cfg = None))]
-fn print_config_from_preset(preset: Option<&str>, cfg: Option<&str>) -> PyResult<()> {
-    // TODO: Deserialize config as hashmap instead of printing.
+fn get_config_from_preset(preset: Option<&str>, cfg: Option<&str>) -> PyResult<String> {
     let cfg = read_cfg(cfg, preset).map_err(|err| PyValueError::new_err(err.to_string()))?;
-    _ = simple_logger::init_with_level(cfg.general.log_level);
-    log::info!("Using config:\n{cfg:#?}");
-    Ok(())
+    toml::to_string(&cfg).map_err(|err| PyValueError::new_err(err.to_string()))
 }
 
-/// Classify a missassembly from an alignment file.
+/// Classify missassemblies from a whole-genome alignment.
 ///
 /// # Args
 /// * `aln`
-///     * Alignment file as BAM or CRAM file. Requires fasta and `cs` tag if CRAM.
+///     * Alignment file as BAM or CRAM file. Requires `cs` tag if CRAM.
 /// * `bed`
 ///     * BED3 file with regions to evaluate.
 /// * `ignore_bed`
@@ -107,6 +200,25 @@ fn print_config_from_preset(preset: Option<&str>, cfg: Option<&str>) -> PyResult
 /// * A [`PyNucFlagResult`] object where:
 ///     * `pileup` is a pileup dataframe
 ///     * `regions` contains all regions evaluated.
+///
+/// # Example
+/// ```python
+/// from py_nucflag import run_nucflag
+///
+/// # Run on all alignments.
+/// # Providing a bed file is highly recommended as pileup information is stored.
+/// results = run_nucflag(
+///     "sample.bam",
+///     bed="regions.bed",
+///     fasta="sample.fa.gz"
+/// )
+/// # Iterate through each region's misassembly calls.
+/// for result in results:
+///     # The misassembly calls as BED9
+///     print(result.regions)
+///     # The raw pileup
+///     print(result.pileup)
+/// ```
 #[pyfunction]
 #[pyo3(signature = (aln, fasta = None, bed = None, ignore_bed = None, threads = 1, cfg = None, preset = None))]
 fn run_nucflag(
@@ -161,6 +273,6 @@ fn py_nucflag(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_nucflag, m)?)?;
     m.add_function(wrap_pyfunction!(run_nucflag_itv, m)?)?;
     m.add_function(wrap_pyfunction!(get_regions, m)?)?;
-    m.add_function(wrap_pyfunction!(print_config_from_preset, m)?)?;
+    m.add_function(wrap_pyfunction!(get_config_from_preset, m)?)?;
     Ok(())
 }

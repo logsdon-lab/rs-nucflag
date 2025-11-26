@@ -3,10 +3,10 @@ use std::{cmp::Ordering, fmt::Display, str::FromStr};
 
 use eyre::bail;
 use itertools::Itertools;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use suffix::SuffixTable;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum Repeat {
     /// Scaffold sequence with `N` characters.
     Scaffold,

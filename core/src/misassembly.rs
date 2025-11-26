@@ -1,10 +1,10 @@
 use std::{cmp::Ordering, convert::Infallible, str::FromStr};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::repeats::Repeat;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum MisassemblyType {
     HetMismap,
     Indel,

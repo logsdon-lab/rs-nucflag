@@ -4,7 +4,7 @@ import polars as pl
 
 class PyNucFlagResult:
     """
-    NucFlag results.
+    `NucFlag` results.
     """
 
     ctg: str
@@ -21,20 +21,109 @@ class PyNucFlagResult:
     """
     pileup: pl.DataFrame
     """
-    Pileup of regions.
+    Pileup of region with columns:
+    * `chrom`
+        * Chromosome name
+    * `pos`
+        * Position
+    * `cov`
+        * Coverage
+    * `status`
+        * Status
+    * `mismatch`
+        * Number of mismatches
+    * `mapq`
+        * MAPQ
+    * `indel`
+        * Number of insertions and deletions
+    * `softclip`
+        * Number of softclipped bases
+    * `bin`
+        * Region number.
+        * 0 if non-repetitive and some number if repetitive
+    * `bin_ident`
+        * Self-sequence identity of region.
+        * 0.0 if non-repetitive
     """
     regions: pl.DataFrame
     """
-    Regions and their status.
+    Regions and their status in BED9 format:
+    * `#chrom`
+        * Chromosome name
+    * `chromStart`
+        * Chromosome start
+    * `chromEnd`
+        * Chromosome end
+    * `name`
+        * Name of status.
+    * `score`
+        * Coverage of region.
+    * `strand`
+        * None or `.`
+    * `thickStart`
+        * Same as `chromEnd`
+    * `thickEnd`
+        * Same as `chromStart`
+    * `itemRgb`
+        * Color of status
     """
 
 def get_regions(
     aln: str, bed: str | None = None, window: int = 10000000
 ) -> list[tuple[int, int, str]]:
-    """Get interval regions from an alignment file or bed file."""
+    """
+    Get interval regions from an alignment file or bed file.
 
-def print_config_from_preset(preset: str | None = None, cfg: str | None = None) -> None:
-    """Print config from preset."""
+    # Args
+    * `aln`
+        * Alignment as BAM or CRAM file.
+    * `bed`
+        * BED file with coordinates.
+        * If not provided, splits all regions listed in `aln` header (`@SQ`) into non-overlapping windows.
+        * Invalid intervals are ignored.
+    * `window`
+        * Window size in base pairs of non-overlapping windows if `bed` not provided.
+
+    # Returns
+    * List of intervals as tuples with the format, start, end, and chromosome name.
+
+    # Example
+    ```python
+    from py_nucflag import get_regions
+
+    # Get all possible aligned regions
+    regions = get_regions("aln.bam", window = 10_000_000)
+    # Get regions in bed file and verify that exist from alignment header.
+    regions_bed = get_regions("aln.bam", bed="regions.bed")
+    ```
+    """
+
+def get_config_from_preset(preset: str | None = None, cfg: str | None = None) -> str:
+    """
+    Return `NucFlag` config as TOML string from preset.
+
+    # Args
+    * `preset`
+        * `NucFlag` preset.
+        * Either `ont_r9`, `ont_r10`, or `hifi`
+    * `config`
+        * Path to configfile.
+        * If provided alongside `preset`, `preset` fields given priority.
+
+    # Returns
+    * Configuration as a TOML string.
+
+    # Example
+    ```python
+    from py_nucflag import get_config_from_preset
+
+    # Get preset parameters
+    config = get_config_from_preset(preset="hifi")
+
+    # Read in existing config and merge with preset parameters.
+    config_w_preset = get_config_from_preset(preset="ont_r10", cfg="config.toml")
+    ```
+    """
 
 def run_nucflag(
     aln: str,
@@ -66,6 +155,25 @@ def run_nucflag(
 
     # Returns
     * [`PyNucFlagResult`]
+
+    # Example
+    ```python
+    from py_nucflag import run_nucflag
+
+    # Run on all alignments.
+    # Providing a bed file is highly recommended as pileup information is stored.
+    results = run_nucflag(
+        "sample.bam",
+        bed="regions.bed",
+        fasta="sample.fa.gz"
+    )
+    # Iterate through each region's misassembly calls.
+    for result in results:
+        # The misassembly calls as BED9
+        print(result.regions)
+        # The raw pileup
+        print(result.pileup)
+    ```
     """
 
 def run_nucflag_itv(
@@ -77,4 +185,19 @@ def run_nucflag_itv(
     cfg: str | None = None,
     preset: str | None = None,
 ) -> PyNucFlagResult:
-    """Classify a missassembly for one interval. Identical to `run_nucflag` but only for one interval."""
+    """
+    Classify a missassembly for one interval. Identical to `run_nucflag` but only for one interval.
+
+    # Example
+    ```python
+    from py_nucflag import run_nucflag_itv
+
+    # Run on alignments to a single interval.
+    result = run_nucflag_itv(
+        "sample.bam",
+        itv=(0, 1_000_000), "chr1"),
+        fasta="sample.fa.gz"
+    )
+    print(result.regions)
+    ```
+    """

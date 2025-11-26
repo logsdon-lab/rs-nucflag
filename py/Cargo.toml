@@ -18,3 +18,4 @@ rs-nucflag = { path = "../core"}
 pyo3-polars = "0.25.0"
 simple_logger = { version = "5.0.0", features = ["stderr"] }
 log = "0.4.27"
+toml = "0.9.8"

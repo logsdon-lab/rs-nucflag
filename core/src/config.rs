@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use log::Level;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{misassembly::MisassemblyType, pileup::PileupMAPQFn, repeats::Repeat};
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     /// General config.
     pub general: GeneralConfig,
@@ -77,7 +77,7 @@ impl Config {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MinimumSizeConfig {
     pub null: usize,
     pub collapse: usize,
@@ -151,7 +151,7 @@ impl Default for MinimumSizeConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GroupByANIConfig {
     /// Size of window to calculate self-identity.
     pub window_size: usize,
@@ -172,7 +172,7 @@ impl Default for GroupByANIConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Config for generated plots.
 pub struct GeneralConfig {
     /// Display log level.
@@ -201,7 +201,7 @@ impl Default for GeneralConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Configuration for coverage signal.
 pub struct CoverageConfig {
     /// Number of z-scores above the median to be considered a misassembly.
@@ -231,7 +231,7 @@ impl Default for CoverageConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Configuration for the mapq signal.
 pub struct MAPQConfig {
     /// Number of z-scores above the median to flag.
@@ -249,7 +249,7 @@ impl Default for MAPQConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Configuration for the mismatch signal.
 pub struct MismatchConfig {
     /// Number of z-scores above the median to flag.
@@ -270,7 +270,7 @@ impl Default for MismatchConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Configuration for the base indel coverage signal.
 pub struct IndelConfig {
     /// Number of z-scores above the median to flag.
@@ -297,7 +297,7 @@ impl Default for IndelConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Configuration for the base softclip coverage signal.
 pub struct SoftClipConfig {
     /// Number of z-scores above the median to flag.
@@ -315,7 +315,7 @@ impl Default for SoftClipConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 /// Configuration for repeat detection from misassemblies. Requires providing fasta.
 pub struct RepeatConfig {
     /// Which misassembles to check for repeats.
