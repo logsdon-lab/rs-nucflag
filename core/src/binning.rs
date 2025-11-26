@@ -117,8 +117,8 @@ pub fn group_pileup_by_ani(
     };
     log::info!(
         "Detected {} region(s) in {ctg}:{}-{end}.",
+        itv_idents.len() + 1,
         st - 1,
-        itv_idents.len() + 1
     );
 
     // Add groups to pileup.
