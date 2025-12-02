@@ -86,7 +86,8 @@ pub struct MinimumSizeConfig {
     pub het_mismap: usize,
     pub false_dup: usize,
     pub softclip: usize,
-    pub indel: usize,
+    pub insertion: usize,
+    pub deletion: usize,
     pub homopolymer: usize,
     pub dinucleotide: usize,
     pub simple_repeat: usize,
@@ -102,7 +103,8 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<MisassemblyType, u64> {
             (MisassemblyType::Null, cfg.null.try_into()?),
             (MisassemblyType::Collapse, cfg.collapse.try_into()?),
             (MisassemblyType::FalseDup, cfg.false_dup.try_into()?),
-            (MisassemblyType::Indel, cfg.indel.try_into()?),
+            (MisassemblyType::Insertion, cfg.insertion.try_into()?),
+            (MisassemblyType::Deletion, cfg.deletion.try_into()?),
             (MisassemblyType::HetMismap, cfg.het_mismap.try_into()?),
             (MisassemblyType::Misjoin, cfg.misjoin.try_into()?),
             (MisassemblyType::Mismatch, cfg.mismatch.try_into()?),
@@ -141,7 +143,8 @@ impl Default for MinimumSizeConfig {
             het_mismap: 1,
             false_dup: 500,
             softclip: 1,
-            indel: 1,
+            insertion: 1,
+            deletion: 1,
             homopolymer: 1,
             simple_repeat: 1,
             dinucleotide: 1,
@@ -275,8 +278,10 @@ impl Default for MismatchConfig {
 pub struct IndelConfig {
     /// Number of z-scores above the median to flag.
     pub n_zscores_high: f32,
-    /// Ratio required to call indel peaks.
-    pub ratio_indel: f32,
+    /// Ratio required to call insertion peaks.
+    pub ratio_insertion: f32,
+    /// Ratio required to call deletion peaks.
+    pub ratio_deletion: f32,
     /// Minimum insertion size to detect in pileup.
     pub min_ins_size: usize,
     /// Minimum deletion size to detect in pileup.
@@ -289,7 +294,8 @@ impl Default for IndelConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 2.0,
-            ratio_indel: 0.5,
+            ratio_insertion: 0.5,
+            ratio_deletion: 0.5,
             min_ins_size: 2,
             min_del_size: 2,
             rolling_mean_window: None,
@@ -320,7 +326,7 @@ impl Default for SoftClipConfig {
 pub struct RepeatConfig {
     /// Which misassembles to check for repeats.
     /// * Usually types associated with drops in coverage.
-    /// * Defaults to [`MisassemblyType::Misjoin`], [`MisassemblyType::Indel`], and [`MisassemblyType::FalseDup`].
+    /// * Defaults to [`MisassemblyType::Misjoin`], [`MisassemblyType::Insertion`], [`MisassemblyType::Deletion`], and [`MisassemblyType::FalseDup`].
     pub check_types: HashSet<MisassemblyType>,
     /// Ratio required of checked region to call as repeat.
     /// * Defaults to a majority.
@@ -337,7 +343,8 @@ impl Default for RepeatConfig {
         Self {
             check_types: HashSet::from_iter([
                 MisassemblyType::Misjoin,
-                MisassemblyType::Indel,
+                MisassemblyType::Insertion,
+                MisassemblyType::Deletion,
                 MisassemblyType::FalseDup,
             ]),
             ratio_repeat: 0.5,

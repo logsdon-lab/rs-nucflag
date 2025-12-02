@@ -35,7 +35,7 @@ rule run_nucflag:
     threads: 4
     shell:
         """
-        nucflag \
+        nucflag call \
         -i {input.bam} \
         -b {input.bed} \
         -d {params.output_dir} \

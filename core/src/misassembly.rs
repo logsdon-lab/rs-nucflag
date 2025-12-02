@@ -7,7 +7,8 @@ use crate::repeats::Repeat;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum MisassemblyType {
     HetMismap,
-    Indel,
+    Insertion,
+    Deletion,
     Mismatch,
     SoftClip,
     Collapse,
@@ -24,7 +25,8 @@ impl MisassemblyType {
             | MisassemblyType::SoftClip
             | MisassemblyType::Collapse
             | MisassemblyType::Misjoin => true,
-            MisassemblyType::Indel
+            MisassemblyType::Insertion
+            | MisassemblyType::Deletion
             | MisassemblyType::Mismatch
             | MisassemblyType::FalseDup
             | MisassemblyType::RepeatError(_)
@@ -36,7 +38,10 @@ impl MisassemblyType {
         match self {
             // Purple
             // #800080
-            MisassemblyType::Indel => "128,0,128",
+            MisassemblyType::Insertion => "128,0,128",
+            // Magnolia
+            // #f8f4ff
+            MisassemblyType::Deletion => "248,244,255",
             // Teal
             // #80FFFF
             MisassemblyType::SoftClip => "0,255,255",
@@ -81,7 +86,8 @@ impl From<MisassemblyType> for &'static str {
     fn from(value: MisassemblyType) -> Self {
         match value {
             MisassemblyType::HetMismap => "het_mismap",
-            MisassemblyType::Indel => "indel",
+            MisassemblyType::Insertion => "insertion",
+            MisassemblyType::Deletion => "deletion",
             MisassemblyType::SoftClip => "softclip",
             MisassemblyType::Collapse => "collapse",
             MisassemblyType::Misjoin => "misjoin",
@@ -103,7 +109,8 @@ impl FromStr for MisassemblyType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
             "het_mismap" => MisassemblyType::HetMismap,
-            "indel" => MisassemblyType::Indel,
+            "insertion" => MisassemblyType::Insertion,
+            "deletion" => MisassemblyType::Deletion,
             "softclip" => MisassemblyType::SoftClip,
             "misjoin" => MisassemblyType::Misjoin,
             "mismatch" => MisassemblyType::Mismatch,
@@ -130,7 +137,8 @@ impl Ord for MisassemblyType {
         match (self, other) {
             // Equal if same.
             (MisassemblyType::HetMismap, MisassemblyType::HetMismap)
-            | (MisassemblyType::Indel, MisassemblyType::Indel)
+            | (MisassemblyType::Insertion, MisassemblyType::Insertion)
+            | (MisassemblyType::Deletion, MisassemblyType::Deletion)
             | (MisassemblyType::Mismatch, MisassemblyType::Mismatch)
             | (MisassemblyType::SoftClip, MisassemblyType::SoftClip)
             | (MisassemblyType::Collapse, MisassemblyType::Collapse)
@@ -147,8 +155,10 @@ impl Ord for MisassemblyType {
             (_, MisassemblyType::Mismatch) => Ordering::Less,
             // Indel and het/mismapping will never replace each other.
             (MisassemblyType::HetMismap, _) => Ordering::Less,
-            (MisassemblyType::Indel, _) => Ordering::Less,
-            (_, MisassemblyType::Indel) => Ordering::Less,
+            (MisassemblyType::Insertion, _) => Ordering::Less,
+            (MisassemblyType::Deletion, _) => Ordering::Less,
+            (_, MisassemblyType::Insertion) => Ordering::Less,
+            (_, MisassemblyType::Deletion) => Ordering::Less,
             // Misjoin should be prioritized over softclip
             (MisassemblyType::SoftClip, MisassemblyType::Misjoin) => Ordering::Less,
             (MisassemblyType::SoftClip, _) => Ordering::Greater,
