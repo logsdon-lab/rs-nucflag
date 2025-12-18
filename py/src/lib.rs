@@ -34,8 +34,10 @@ pub struct PyNucFlagResult {
     ///     * Number of mismatches
     /// * `mapq`
     ///     * MAPQ
-    /// * `indel`
-    ///     * Number of insertions and deletions
+    /// * `insertion`
+    ///     * Number of insertions
+    /// * `deletion`
+    ///     * Number of deletions
     /// * `softclip`
     ///     * Number of softclipped bases
     /// * `bin`

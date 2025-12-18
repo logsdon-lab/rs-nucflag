@@ -43,8 +43,16 @@ fn nucflag_grp(
         false,
     )?;
     // Detect indel peaks.
-    let lf_indel_peaks = find_peaks(
-        df_pileup.select(["pos", "indel"])?,
+    let lf_insertion_peaks = find_peaks(
+        df_pileup.select(["pos", "insertion"])?,
+        // Don't care about dips in indels.
+        cfg.indel.n_zscores_high,
+        cfg.indel.n_zscores_high,
+        true,
+        false,
+    )?;
+    let lf_deletion_peaks = find_peaks(
+        df_pileup.select(["pos", "deletion"])?,
         // Don't care about dips in indels.
         cfg.indel.n_zscores_high,
         cfg.indel.n_zscores_high,
@@ -73,7 +81,13 @@ fn nucflag_grp(
 
     let lf_pileup = lf_cov_peaks
         .join(
-            lf_indel_peaks,
+            lf_insertion_peaks,
+            [col("pos")],
+            [col("pos")],
+            JoinArgs::new(JoinType::Left),
+        )
+        .join(
+            lf_deletion_peaks,
             [col("pos")],
             [col("pos")],
             JoinArgs::new(JoinType::Left),
@@ -102,7 +116,8 @@ fn nucflag_grp(
                     "pos",
                     "mapq_max",
                     "mismatch",
-                    "indel",
+                    "insertion",
+                    "deletion",
                     "softclip",
                     "bin",
                     "bin_ident",

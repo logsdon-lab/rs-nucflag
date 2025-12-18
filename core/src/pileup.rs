@@ -78,7 +78,8 @@ pub enum PileupMAPQFn {
 pub struct PileupInfo {
     pub n_cov: u32,
     pub n_mismatch: u32,
-    pub n_indel: u32,
+    pub n_insertion: u32,
+    pub n_deletion: u32,
     pub n_softclip: u32,
     pub mapq: Vec<u8>,
 }
@@ -195,8 +196,12 @@ macro_rules! pileup {
                 // Deliberate choice to not count deletion towards coverage.
                 // We define coverage as # of reads that support the reference.
                 // If deleted, doesn't support.
-                Kind::Deletion | Kind::Insertion => {
-                    pileup_info.n_indel += 1;
+                Kind::Deletion => {
+                    pileup_info.n_deletion += 1;
+                    continue;
+                }
+                Kind::Insertion => {
+                    pileup_info.n_insertion += 1;
                     continue;
                 }
                 Kind::SoftClip => {
@@ -408,9 +413,11 @@ pub(crate) fn merge_pileup_info(
         mut mismatch_cnts,
         mut mapq_mean_cnts,
         mut mapq_max_cnts,
-        mut indel_cnts,
+        mut insetion_cnts,
+        mut deletion_cnts,
         mut softclip_cnts,
     ) = (
+        Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
         Vec::with_capacity(pileup.len()),
@@ -430,7 +437,8 @@ pub(crate) fn merge_pileup_info(
         mismatch_cnts.push(p.n_mismatch);
         mapq_max_cnts.push(p.mapq.iter().max().cloned().unwrap_or_default());
         mapq_mean_cnts.push(pileup_fn(&p));
-        indel_cnts.push(p.n_indel);
+        insetion_cnts.push(p.n_insertion);
+        deletion_cnts.push(p.n_deletion);
         softclip_cnts.push(p.n_softclip);
     }
     let mut lf = DataFrame::new(vec![
@@ -442,7 +450,8 @@ pub(crate) fn merge_pileup_info(
         Column::new("mismatch".into(), mismatch_cnts),
         Column::new("mapq_max".into(), mapq_max_cnts),
         Column::new("mapq".into(), mapq_mean_cnts),
-        Column::new("indel".into(), indel_cnts),
+        Column::new("insertion".into(), insetion_cnts),
+        Column::new("deletion".into(), deletion_cnts),
         Column::new("softclip".into(), softclip_cnts),
     ])?
     .lazy();
@@ -450,7 +459,8 @@ pub(crate) fn merge_pileup_info(
     for (colname, window_size) in [
         ("cov", cfg.cov.rolling_mean_window),
         ("mismatch", cfg.mismatch.rolling_mean_window),
-        ("indel", cfg.indel.rolling_mean_window),
+        ("insertion", cfg.indel.rolling_mean_window),
+        ("deletion", cfg.indel.rolling_mean_window),
     ] {
         if let Some(window_size) = window_size {
             lf = lf.with_column(col(colname).rolling_mean(RollingOptionsFixedWindow {
@@ -490,7 +500,8 @@ mod test {
                 PileupInfo {
                     n_cov: 25,
                     n_mismatch: 0,
-                    n_indel: 0,
+                    n_insertion: 0,
+                    n_deletion: 0,
                     n_softclip: 0,
                     mapq: [
                         60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
@@ -501,7 +512,8 @@ mod test {
                 PileupInfo {
                     n_cov: 25,
                     n_mismatch: 0,
-                    n_indel: 0,
+                    n_insertion: 0,
+                    n_deletion: 0,
                     n_softclip: 0,
                     mapq: [
                         60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
@@ -512,7 +524,8 @@ mod test {
                 PileupInfo {
                     n_cov: 25,
                     n_mismatch: 0,
-                    n_indel: 0,
+                    n_insertion: 0,
+                    n_deletion: 0,
                     n_softclip: 0,
                     mapq: [
                         60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
@@ -523,7 +536,8 @@ mod test {
                 PileupInfo {
                     n_cov: 25,
                     n_mismatch: 0,
-                    n_indel: 25,
+                    n_insertion: 25,
+                    n_deletion: 0,
                     n_softclip: 0,
                     mapq: [
                         60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
@@ -534,7 +548,8 @@ mod test {
                 PileupInfo {
                     n_cov: 25,
                     n_mismatch: 0,
-                    n_indel: 0,
+                    n_insertion: 0,
+                    n_deletion: 0,
                     n_softclip: 0,
                     mapq: [
                         60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
@@ -545,7 +560,8 @@ mod test {
                 PileupInfo {
                     n_cov: 25,
                     n_mismatch: 0,
-                    n_indel: 0,
+                    n_insertion: 0,
+                    n_deletion: 0,
                     n_softclip: 0,
                     mapq: [
                         60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
@@ -556,7 +572,8 @@ mod test {
                 PileupInfo {
                     n_cov: 25,
                     n_mismatch: 0,
-                    n_indel: 0,
+                    n_insertion: 0,
+                    n_deletion: 0,
                     n_softclip: 0,
                     mapq: [
                         60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 55, 60, 46, 49, 55, 59,
@@ -588,7 +605,8 @@ mod test {
                     PileupInfo {
                         n_cov: 41,
                         n_mismatch: 0,
-                        n_indel: 40,
+                        n_insertion: 40,
+                        n_deletion: 0,
                         n_softclip: 0,
                         mapq: [
                             60, 60, 60, 60, 60, 18, 34, 60, 35, 60, 60, 33, 30, 60, 33, 34, 33, 31,
@@ -600,7 +618,8 @@ mod test {
                     PileupInfo {
                         n_cov: 41,
                         n_mismatch: 0,
-                        n_indel: 0,
+                        n_insertion: 0,
+                        n_deletion: 0,
                         n_softclip: 0,
                         mapq: [
                             60, 60, 60, 60, 60, 18, 34, 60, 35, 60, 60, 33, 30, 60, 33, 34, 33, 31,
@@ -612,7 +631,8 @@ mod test {
                     PileupInfo {
                         n_cov: 41,
                         n_mismatch: 0,
-                        n_indel: 38,
+                        n_insertion: 38,
+                        n_deletion: 0,
                         n_softclip: 0,
                         mapq: [
                             60, 60, 60, 60, 60, 18, 34, 60, 35, 60, 60, 33, 30, 60, 33, 34, 33, 31,
@@ -647,7 +667,8 @@ mod test {
                 "mismatch" => [0u32; 3],
                 "mapq_max" => [60u8; 3],
                 "mapq" => [45u8; 3],
-                "indel" => [40u32, 0u32, 38u32],
+                "insertion" => [40u32, 0u32, 38u32],
+                "deletion" => [0u32, 0u32, 0u32],
                 "softclip" => [0u32; 3],
             )
             .unwrap()

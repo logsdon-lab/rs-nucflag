@@ -468,20 +468,37 @@ pub(crate) fn classify_peaks(
 
     let lf_pileup = lf_pileup
         .with_column(
-            // indel
+            // indels
             // Region with insertion or deletion or soft clip that has high indel ratio and has a peak
             // or drop in coverage and majority of bases are softclipped or indels.
+            //
+            // deletion
             when(
-                (col("indel").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
-                    .gt_eq(lit(cfg.indel.ratio_indel))
-                    .and(col("indel_peak").eq(lit("high")))
+                (col("deletion").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                    .gt_eq(lit(cfg.indel.ratio_deletion))
+                    .and(col("deletion_peak").eq(lit("high")))
                     .or(col("cov_peak").eq(lit("low")).and(
-                        ((col("indel") + col("softclip")).cast(DataType::Float32)
+                        ((col("deletion") + col("softclip")).cast(DataType::Float32)
                             / col("cov").cast(DataType::Float32))
-                        .gt(lit(cfg.indel.ratio_indel)),
-                    )),
+                        .gt(lit(cfg.indel.ratio_deletion)),
+                    ))
+                    .and(col("deletion").gt_eq(col("insertion"))),
             )
-            .then(lit("indel"))
+            .then(lit("deletion"))
+            // insertion
+            .when(
+                (col("insertion").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                    .gt_eq(lit(cfg.indel.ratio_insertion))
+                    .and(col("insertion_peak").eq(lit("high")))
+                    .or(col("cov_peak").eq(lit("low")).and(
+                        ((col("insertion") + col("softclip")).cast(DataType::Float32)
+                            / col("cov").cast(DataType::Float32))
+                        .gt(lit(cfg.indel.ratio_insertion)),
+                    ))
+                    .and(col("insertion").gt_eq(col("deletion"))),
+            )
+            .then(lit("insertion"))
+            // softclip
             .when(
                 (col("softclip").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
                     .gt_eq(lit(cfg.softclip.ratio_softclip))
@@ -502,7 +519,9 @@ pub(crate) fn classify_peaks(
                     .and(
                         col("mismatch_peak")
                             .eq(lit("high"))
-                            .or(col("indel_peak").eq(lit("high"))),
+                            .or(col("insertion_peak")
+                                .eq(lit("high"))
+                                .or(col("deletion_peak").eq(lit("high")))),
                     ),
             )
             .then(lit("collapse"))
@@ -591,7 +610,8 @@ pub(crate) fn classify_peaks(
     // Removed cols to reduce memory consumption.
     col("cov_zscore"),
     col("mismatch_zscore"),
-    col("indel_zscore"),
+    col("insertion_zscore"),
+    col("deletion_zscore"),
     col("softclip_zscore"),
     */
     let cols = [
@@ -601,7 +621,8 @@ pub(crate) fn classify_peaks(
         col("status"),
         col("mismatch"),
         col("mapq"),
-        col("indel"),
+        col("insertion"),
+        col("deletion"),
         col("softclip"),
         col("bin"),
         col("bin_ident"),
@@ -614,7 +635,7 @@ pub(crate) fn classify_peaks(
     // Construct intervals.
     // Store [st,end,type,cov]
     let df_itvs = df_pileup
-        .select(["pos", "cov", "mismatch", "status", "bin"])?
+        .select(["pos", "cov", "status", "bin"])?
         .lazy()
         .with_column(
             ((col("pos") - col("pos").shift_and_fill(1, 0))
