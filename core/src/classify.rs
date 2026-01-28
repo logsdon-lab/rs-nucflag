@@ -284,7 +284,7 @@ pub(crate) fn merge_misassemblies(
             let seq = str::from_utf8(record.sequence().as_ref())?;
             detect_largest_repeat(seq)
                 .and_then(|rpt| {
-                    log::debug!("Detected repeat at {ctg}:{}-{end}: {rpt:?}", st - 1);
+                    log::debug!("Detected repeat at {ctg}:{st}-{end}: {rpt:?}");
                     // If any number of N's is scaffold.
                     if rpt.repeat == Repeat::Scaffold {
                         Some(MisassemblyType::RepeatError(rpt.repeat))
@@ -368,7 +368,7 @@ pub(crate) fn merge_misassemblies(
                         .query_count(agg_st, agg_end)
                         .ge(&1)
                 {
-                    log::debug!("Filtered out {agg_status:?}: {ctg}:{}-{agg_end} above median coverage at bin transition ({bin_stats:?})", agg_st - 1);
+                    log::debug!("Filtered out {agg_status:?}: {ctg}:{agg_st}-{agg_end} above median coverage at bin transition ({bin_stats:?})");
                     agg_status = MisassemblyType::Null;
                 }
             }
@@ -439,9 +439,10 @@ pub(crate) fn merge_misassemblies(
         .with_column(col("status").rle_id().alias("group"))
         .group_by(["group"])
         .agg([
-            // Offset by 1 to account for noodles and match IGV coordinates.
-            (col("st").min() - lit(1)).clip_min(lit(0)),
-            (col("end").max() - lit(1)).clip_min(lit(0)),
+            // Positions in noodles are 1-based ([start, end]) so need to shift.
+            // https://github.com/zaeleus/noodles/discussions/207
+            col("st").min() - lit(1),
+            col("end").max() - lit(1),
             col("cov").median().cast(DataType::UInt32),
             col("status").first(),
         ])
@@ -510,18 +511,16 @@ pub(crate) fn classify_peaks(
         )
         .with_column(
             // collapse
-            // Regions with at double the coverage and dip in mapping quality or increase in mismatches/indels.
+            // Regions with at double the coverage and increase in mismatches/indels.
             when(
                 col("cov_peak")
                     .eq(lit("high"))
                     .and(col("cov").gt_eq(lit(thr_collapse)))
-                    .and(col("mapq_peak").eq(lit("low")))
                     .and(
                         col("mismatch_peak")
                             .eq(lit("high"))
-                            .or(col("insertion_peak")
-                                .eq(lit("high"))
-                                .or(col("deletion_peak").eq(lit("high")))),
+                            .or(col("insertion_peak").eq(lit("high")))
+                            .or(col("deletion_peak").eq(lit("high"))),
                     ),
             )
             .then(lit("collapse"))

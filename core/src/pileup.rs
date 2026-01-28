@@ -330,18 +330,25 @@ impl AlignmentFile {
         min_del_size: usize,
         min_aln_length: usize,
     ) -> eyre::Result<PileupSummary> {
+        // Assume if provide 1, means 0 start.
+        let st_print = itv.first - (itv.first == 1) as i32;
         let st: usize = itv.first.try_into()?;
         let end: usize = itv.last.try_into()?;
         // coitrees len is range exclusive
         // noodles is range inclusive.
+        // https://github.com/zaeleus/noodles/discussions/207
         let length = itv.len();
-        // Query entire contig.
+        // Query entire contig. Use htslib like coordinates.
+        // Unfortunately, this skips 0 since must be 1 start at point. Will panic otherwise.
         let region = Region::new(
             &*itv.metadata,
-            Position::try_from(st)?
-                ..=Position::try_from(end.saturating_sub(1).clamp(1, usize::MAX))?,
+            Position::try_from(st)?..=Position::try_from(end - 1)?,
         );
-        log::info!("Generating pileup over {}:{}-{end}.", region.name(), st - 1);
+        log::info!(
+            "Generating pileup over {}:{}-{end}.",
+            region.name(),
+            st_print
+        );
 
         let mut pileup_infos: Vec<PileupInfo> = vec![PileupInfo::default(); length.try_into()?];
         // Reduce some redundancy with macro.
@@ -394,7 +401,7 @@ impl AlignmentFile {
                 }
             }
         }
-        log::info!("Finished pileup over {}:{}-{end}.", region.name(), st - 1);
+        log::info!("Finished pileup over {}:{}-{end}.", region.name(), st_print);
 
         Ok(PileupSummary {
             region,

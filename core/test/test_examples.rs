@@ -18,6 +18,7 @@ fn check_output(
     expected: Option<&str>,
     save_res: Option<&str>,
 ) {
+    // TODO: Take gzip using flate
     let itvs = std::fs::read_to_string(bed).unwrap();
     let itv = itvs
         .lines()
@@ -166,6 +167,24 @@ fn test_minor_collapse() {
             check_output(&aln, &bed, None, None, None, Some(&expected));
         } else {
             check_output(&aln, &bed, None, None, Some(&expected), None)
+        }
+    }
+}
+
+#[test]
+fn test_collapse() {
+    let indir = "test/collapse/input";
+    let expdir = "test/collapse/expected";
+    {
+        let aln = format!("{indir}/aln_1.bam");
+        let bed = format!("{indir}/aln_1.bed");
+        let expected = format!("{expdir}/aln_1.bed");
+        let cfg = format!("{indir}/aln_1.toml");
+        let fa = format!("{indir}/aln_1.fa.gz");
+        if GENERATE_BEDS {
+            check_output(&aln, &bed, Some(&fa), Some(&cfg), None, Some(&expected));
+        } else {
+            check_output(&aln, &bed, Some(&fa), Some(&cfg), Some(&expected), None)
         }
     }
 }

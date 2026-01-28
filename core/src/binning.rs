@@ -45,6 +45,7 @@ pub fn group_pileup_by_ani(
 ) -> eyre::Result<DataFrame> {
     let ctg = itv.metadata.clone();
     let (st, end): (i32, i32) = (itv.first, itv.last);
+    let st_print = st - (itv.first == 1) as i32;
     let window_size = cfg.window_size;
     let min_grp_size = cfg.min_grp_size;
     let min_ident = cfg.min_ident;
@@ -55,7 +56,7 @@ pub fn group_pileup_by_ani(
     let itv_idents: COITree<(u64, f32), usize> = {
         log::info!(
             "Calculating self-identity for {ctg}:{}-{end} to bin region.",
-            st - 1
+            st_print
         );
         let bed_ident = compute_seq_self_identity(
             str::from_utf8(seq.sequence().as_ref())?,
@@ -65,7 +66,7 @@ pub fn group_pileup_by_ani(
                 ..Default::default()
             }),
         );
-        log::info!("Grouping repetitive intervals in {ctg}:{}-{end}.", st - 1);
+        log::info!("Grouping repetitive intervals in {ctg}:{}-{end}.", st_print);
         let bed_group_ident = compute_group_seq_self_identity(&bed_ident);
 
         let mut itvs: VecDeque<Interval<(u64, f32)>> = bed_group_ident
@@ -118,7 +119,7 @@ pub fn group_pileup_by_ani(
     log::info!(
         "Detected {} region(s) in {ctg}:{}-{end}.",
         itv_idents.len() + 1,
-        st - 1,
+        st_print,
     );
 
     // Add groups to pileup.

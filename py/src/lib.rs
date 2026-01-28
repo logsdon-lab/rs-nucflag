@@ -1,10 +1,11 @@
 use coitrees::{COITree, Interval};
-use core::str;
 use pyo3::{exceptions::PyValueError, prelude::*};
 use pyo3_polars::PyDataFrame;
 use rayon::{prelude::*, ThreadPoolBuilder};
 use rs_nucflag::{io::read_cfg, nucflag};
+use simple_logger::SimpleLogger;
 use std::collections::HashMap;
+
 mod utils;
 
 use crate::utils::{get_aln_intervals, get_ignored_intervals};
@@ -98,6 +99,9 @@ pub struct PyNucFlagResult {
 #[pyfunction]
 #[pyo3(signature = (aln, bed = None, window = 10_000_000))]
 fn get_regions(aln: &str, bed: Option<&str>, window: usize) -> PyResult<Vec<(i32, i32, String)>> {
+    // Init with default level.
+    _ = SimpleLogger::new().init();
+
     Ok(get_aln_intervals(aln, bed, window)?
         .into_iter()
         .map(|itv| (itv.first, itv.last, itv.metadata))
@@ -131,7 +135,7 @@ fn run_nucflag_itv(
     let cfg = read_cfg(cfg, preset).map_err(|err| PyValueError::new_err(err.to_string()))?;
     let itv = Interval::new(itv.0, itv.1, itv.2);
 
-    _ = simple_logger::init_with_level(cfg.general.log_level);
+    _ = SimpleLogger::new().with_level(cfg.general.log_level).init();
 
     // Set rayon threadpool
     _ = ThreadPoolBuilder::new().num_threads(threads).build_global();
@@ -234,7 +238,7 @@ fn run_nucflag(
 ) -> PyResult<Vec<PyNucFlagResult>> {
     let cfg = read_cfg(cfg, preset).map_err(|err| PyValueError::new_err(err.to_string()))?;
 
-    _ = simple_logger::init_with_level(cfg.general.log_level);
+    _ = SimpleLogger::new().with_level(cfg.general.log_level).init();
 
     log::info!("Using config:\n{cfg:#?}");
 

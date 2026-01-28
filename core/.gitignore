@@ -1,5 +1,4 @@
 /target
-*.tsv
-*.png
-*.bed
-*.cov
+/*.tsv
+/*.png
+/*.bed

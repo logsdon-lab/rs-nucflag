@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use log::Level;
+use log::LevelFilter;
 use serde::{Deserialize, Serialize};
 
 use crate::{misassembly::MisassemblyType, pileup::PileupMAPQFn, repeats::Repeat};
@@ -179,7 +179,7 @@ impl Default for GroupByANIConfig {
 /// Config for generated plots.
 pub struct GeneralConfig {
     /// Display log level.
-    pub log_level: Level,
+    pub log_level: LevelFilter,
     /// Number of bases to merge misassembly intervals.
     pub bp_merge: usize,
     /// Whole genome window size in base pairs. Only used if no BED file is provided.
@@ -195,7 +195,7 @@ pub struct GeneralConfig {
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
-            log_level: Level::Info,
+            log_level: LevelFilter::Info,
             bp_merge: 5_000,
             bp_wg_window: 10_000_000,
             bp_min_aln_length: 1,
