@@ -68,6 +68,11 @@ pub struct PyNucFlagResult {
     ///     * Same as `chromStart`
     /// * `itemRgb`
     ///     * Color of status
+    /// * `zscore`
+    ///     * [MAD adjusted z-score.](https://www.ibm.com/docs/en/cognos-analytics/12.0.x?topic=terms-modified-z-score)
+    /// * `af`
+    ///     * Allele frequency.
+    ///     * `signal / coverage` where deletions are not counted toward `coverage`
     #[pyo3(get)]
     pub regions: PyDataFrame,
 }

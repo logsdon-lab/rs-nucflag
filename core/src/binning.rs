@@ -8,7 +8,7 @@ use rs_moddotplot::{compute_group_seq_self_identity, compute_seq_self_identity};
 use crate::{config::GroupByANIConfig, io::FastaHandle};
 
 pub struct BinStats {
-    pub num: u64,
+    pub num: u32,
     pub median: f32,
     pub stdev: f32,
     pub itree_above_median: COITree<(), usize>,
@@ -53,7 +53,7 @@ pub fn group_pileup_by_ani(
     let mut reader_fasta = FastaHandle::new(fasta)?;
     let seq = reader_fasta.fetch(&ctg, st as usize, end as usize)?;
 
-    let itv_idents: COITree<(u64, f32), usize> = {
+    let itv_idents: COITree<(u32, f32), usize> = {
         log::info!(
             "Calculating self-identity for {ctg}:{}-{end} to bin region.",
             st_print
@@ -69,7 +69,7 @@ pub fn group_pileup_by_ani(
         log::info!("Grouping repetitive intervals in {ctg}:{}-{end}.", st_print);
         let bed_group_ident = compute_group_seq_self_identity(&bed_ident);
 
-        let mut itvs: VecDeque<Interval<(u64, f32)>> = bed_group_ident
+        let mut itvs: VecDeque<Interval<(u32, f32)>> = bed_group_ident
             .into_iter()
             .filter(|r| (r.end - r.start > min_grp_size) && r.avg_perc_id_by_events > min_ident)
             .enumerate()
@@ -78,12 +78,12 @@ pub fn group_pileup_by_ani(
                 Interval::new(
                     r.start as i32 + st,
                     r.end as i32 + st,
-                    ((i + 1) as u64, r.avg_perc_id_by_events),
+                    ((i + 1) as u32, r.avg_perc_id_by_events),
                 )
             })
             .collect();
 
-        let mut final_itvs: Vec<Interval<(u64, f32)>> = vec![];
+        let mut final_itvs: Vec<Interval<(u32, f32)>> = vec![];
         let lf_cov = df.select(["pos", "cov"])?.lazy();
 
         while let Some(mut itv) = itvs.pop_front() {
@@ -124,7 +124,7 @@ pub fn group_pileup_by_ani(
 
     // Add groups to pileup.
     // N's will cause offset so need to detect overlaps.
-    let (ident_groups, ident_values): (Vec<u64>, Vec<f32>) = df
+    let (ident_groups, ident_values): (Vec<u32>, Vec<f32>) = df
         .column("pos")?
         .cast(&DataType::Int32)?
         .i32()?

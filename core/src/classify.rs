@@ -11,7 +11,18 @@ use crate::{
 use coitrees::{COITree, Interval, IntervalTree};
 use eyre::bail;
 use itertools::{multizip, Itertools};
+use ordered_float::OrderedFloat;
+use polars::lazy::dsl::max_horizontal;
 use polars::{frame::row::Row, prelude::*};
+
+#[derive(Debug, Clone)]
+struct CallInfo {
+    typ: MisassemblyType,
+    cov: u32,
+    bin: u32,
+    zscore: OrderedFloat<f32>,
+    af: OrderedFloat<f32>,
+}
 
 fn split_at_ignored_intervals<'a>(
     st: i32,
@@ -94,10 +105,10 @@ fn get_itree_above_median(
 }
 
 fn ignore_boundary_misassemblies(
-    itvs: &mut [Interval<(MisassemblyType, u32, u64)>],
+    itvs: &mut [Interval<CallInfo>],
     ctg: &str,
     fasta: Option<FastaHandle>,
-    bin_stats: &HashMap<u64, BinStats>,
+    bin_stats: &HashMap<u32, BinStats>,
     default_boundary_positions: (i32, i32),
 ) {
     // Filter boundary misassemblies if below median coverage.
@@ -128,15 +139,21 @@ fn ignore_boundary_misassemblies(
     {
         // Keep removing while below median and not a good interval.
         while let Some(itv) = itvs.get_mut(idx_st).filter(|itv| {
-            let bin = &bin_stats[&itv.metadata.2];
-            itv.metadata.1 < (bin.median - bin.stdev).clamp(0.0, f32::MAX) as u32
+            let bin = &bin_stats[&itv.metadata.bin];
+            itv.metadata.cov < (bin.median - bin.stdev).clamp(0.0, f32::MAX) as u32
         }) {
-            let og_mdata = itv.metadata;
-            log::debug!("Filtered out {:?}: {ctg}:{}-{} at contig start with coverage ({}) below bin median {:?}", og_mdata.0, itv.first, itv.last, og_mdata.1, &bin_stats[&og_mdata.2]);
+            let og_mdata = &itv.metadata;
+            log::debug!("Filtered out {:?}: {ctg}:{}-{} at contig start with coverage ({}) below bin median {:?}", og_mdata.typ, itv.first, itv.last, og_mdata.cov, &bin_stats[&og_mdata.bin]);
             *itv = Interval::new(
                 itv.first,
                 itv.last,
-                (MisassemblyType::Null, og_mdata.1, og_mdata.2),
+                CallInfo {
+                    typ: MisassemblyType::Null,
+                    cov: og_mdata.cov,
+                    bin: og_mdata.bin,
+                    zscore: og_mdata.zscore,
+                    af: og_mdata.af,
+                },
             );
             idx_st += 1
         }
@@ -148,22 +165,28 @@ fn ignore_boundary_misassemblies(
         .unwrap_or_default()
     {
         while let Some(itv) = itvs.get_mut(idx_end).filter(|itv| {
-            let bin = &bin_stats[&itv.metadata.2];
-            itv.metadata.1 < (bin.median - bin.stdev).clamp(0.0, f32::MAX) as u32
+            let bin = &bin_stats[&itv.metadata.bin];
+            itv.metadata.cov < (bin.median - bin.stdev).clamp(0.0, f32::MAX) as u32
         }) {
-            let og_mdata = itv.metadata;
+            let og_mdata = &itv.metadata;
             log::debug!(
                 "Filtered out {:?}: {ctg}:{}-{} on contig end with coverage ({}) below bin median {:?}",
-                og_mdata.0,
+                og_mdata.typ,
                 itv.first,
                 itv.last,
-                og_mdata.1,
-                &bin_stats[&og_mdata.2]
+                og_mdata.cov,
+                &bin_stats[&og_mdata.bin]
             );
             *itv = Interval::new(
                 itv.first,
                 itv.last,
-                (MisassemblyType::Null, og_mdata.1, og_mdata.2),
+                CallInfo {
+                    typ: MisassemblyType::Null,
+                    cov: og_mdata.cov,
+                    bin: og_mdata.bin,
+                    zscore: og_mdata.zscore,
+                    af: og_mdata.af,
+                },
             );
             idx_end -= 1
         }
@@ -172,7 +195,7 @@ fn ignore_boundary_misassemblies(
 
 pub(crate) fn merge_misassemblies(
     df_itvs: DataFrame,
-    bin_stats: HashMap<u64, BinStats>,
+    bin_stats: HashMap<u32, BinStats>,
     ctg: &str,
     fasta: Option<impl AsRef<Path> + Debug>,
     ignore_itvs: Option<&COITree<String, usize>>,
@@ -180,14 +203,29 @@ pub(crate) fn merge_misassemblies(
 ) -> eyre::Result<LazyFrame> {
     let bp_merge = cfg.general.bp_merge.try_into()?;
     let cfg_min_size = cfg.minimum_size.unwrap_or_default();
-    let itvs_all: Vec<(u64, u64, u32, &str, u64)> = multizip((
+
+    let itvs_all: Vec<(u64, u64, u32, &str, u32, f32, f32)> = multizip((
         df_itvs.column("st")?.u64()?.iter().flatten(),
         df_itvs.column("end")?.u64()?.iter().flatten(),
         df_itvs.column("cov")?.u32()?.iter().flatten(),
         df_itvs.column("status")?.str()?.iter().flatten(),
-        df_itvs.column("bin")?.u64()?.iter().flatten(),
+        df_itvs.column("bin")?.u32()?.iter().flatten(),
+        // This is really strange behavior, the last f32 is None when using f32().iter() but a valid value in the dataframe.
+        // If unhandled, multizip will omit the last record.
+        // I don't have a clean solution here. This might produce a false zscore at the end of the window.
+        df_itvs
+            .column("zscore")?
+            .f32()?
+            .iter()
+            .map(|v| v.unwrap_or_default()),
+        df_itvs
+            .column("af")?
+            .f32()?
+            .iter()
+            .map(|v| v.unwrap_or_default()),
     ))
     .collect();
+    // crate::io::write_tsv(&mut df_itvs.clone(), Some("test.tsv"))?;
 
     let (Some(all_st), Some(all_end)) = (
         itvs_all.first().map(|itv| itv.0 as i32),
@@ -237,9 +275,8 @@ pub(crate) fn merge_misassemblies(
     // Convert good intervals overlapping misassembly types.
     // Detect repeats.
     // Remove ignored intervals.
-    let mut reclassified_itvs_all: Vec<Interval<(MisassemblyType, u32, u64)>> =
-        Vec::with_capacity(itvs_all.len());
-    for (st, end, cov, status, bin) in itvs_all {
+    let mut reclassified_itvs_all: Vec<Interval<CallInfo>> = Vec::with_capacity(itvs_all.len());
+    for (st, end, cov, status, bin, zscore, af) in itvs_all {
         let st = st.try_into()?;
         let end = end.try_into()?;
         let len = (end - st) as f32;
@@ -307,13 +344,33 @@ pub(crate) fn merge_misassemblies(
             ignore_itvs.and_then(|itree| split_at_ignored_intervals(st, end, &status, itree))
         {
             for itv in split_intervals {
-                reclassified_itvs_all.push(Interval::new(itv.first, itv.last, (status, cov, bin)));
+                reclassified_itvs_all.push(Interval::new(
+                    itv.first,
+                    itv.last,
+                    CallInfo {
+                        typ: status,
+                        cov,
+                        bin,
+                        zscore: OrderedFloat(zscore),
+                        af: OrderedFloat(af),
+                    },
+                ));
             }
             continue;
         }
 
         // Otherwise, add misassembly.
-        reclassified_itvs_all.push(Interval::new(st, end, (status, cov, bin)));
+        reclassified_itvs_all.push(Interval::new(
+            st,
+            end,
+            CallInfo {
+                typ: status,
+                cov,
+                bin,
+                zscore: OrderedFloat(zscore),
+                af: OrderedFloat(af),
+            },
+        ));
     }
 
     // Keep sorted.
@@ -332,23 +389,40 @@ pub(crate) fn merge_misassemblies(
 
     // Get minimum and maximum positions of sorted, grouped intervals.
     // Filter collapses based on bin boundaries.
-    let mut minmax_reclassified_itvs_all = vec![];
+    let mut minmax_reclassified_itvs_all: Vec<Interval<CallInfo>> = vec![];
     for ((is_mergeable, bin), group_elements) in &reclassified_itvs_all
         .into_iter()
-        .chunk_by(|a| (a.metadata.0.is_mergeable(), a.metadata.2))
+        .chunk_by(|a| (a.metadata.typ.is_mergeable(), a.metadata.bin))
     {
         if is_mergeable {
-            let (mut agg_st, mut agg_end, mut mean_cov) = (i32::MAX, 0, 0);
+            let (mut agg_st, mut agg_end, mut mean_cov, mut max_zscore, mut max_af) = (
+                i32::MAX,
+                0,
+                0,
+                OrderedFloat(f32::MIN),
+                OrderedFloat(f32::MIN),
+            );
             let mut agg_status = MisassemblyType::Null;
             let mut num_elems = 0;
             // Get min max of region.
-            for (st, end, status, cov) in group_elements
-                .map(|itv| (itv.first, itv.last, itv.metadata.0, itv.metadata.1))
+            for (st, end, status, cov, zscore, af) in group_elements
+                .map(|itv| {
+                    (
+                        itv.first,
+                        itv.last,
+                        itv.metadata.typ,
+                        itv.metadata.cov,
+                        itv.metadata.zscore,
+                        itv.metadata.af,
+                    )
+                })
                 .sorted_by(|a, b| a.0.cmp(&b.0))
             {
                 agg_st = std::cmp::min(st, agg_st);
                 agg_end = std::cmp::max(end, agg_end);
                 agg_status = std::cmp::max(agg_status, status);
+                max_zscore = std::cmp::max(max_zscore, zscore);
+                max_af = std::cmp::max(max_af, af);
                 mean_cov += cov;
                 num_elems += 1;
             }
@@ -376,34 +450,64 @@ pub(crate) fn merge_misassemblies(
             minmax_reclassified_itvs_all.push(Interval::new(
                 agg_st,
                 agg_end,
-                (agg_status, mean_cov),
+                CallInfo {
+                    typ: agg_status,
+                    cov: mean_cov,
+                    bin,
+                    zscore: max_zscore,
+                    af: max_af,
+                },
             ));
         } else {
-            minmax_reclassified_itvs_all.extend(
-                group_elements.into_iter().map(|itv| {
-                    Interval::new(itv.first, itv.last, (itv.metadata.0, itv.metadata.1))
-                }),
-            );
+            minmax_reclassified_itvs_all.extend(group_elements.into_iter().map(|itv| {
+                Interval::new(
+                    itv.first,
+                    itv.last,
+                    CallInfo {
+                        typ: itv.metadata.typ,
+                        cov: itv.metadata.cov,
+                        bin: itv.metadata.bin,
+                        zscore: itv.metadata.zscore,
+                        af: itv.metadata.af,
+                    },
+                )
+            }));
         }
     }
 
-    let fn_finalizer = |a: Interval<(MisassemblyType, u32)>| -> Interval<(MisassemblyType, u32)> {
-        let mut status = a.metadata.0;
+    let fn_finalizer = |a: Interval<CallInfo>| -> Interval<CallInfo> {
+        let mut status = a.metadata.typ;
         // Remove misassemblies less than threshold size.
         let min_size = thr_minimum_sizes[&status];
         let length = (a.last - a.first) as u64;
         if length < min_size {
             status = MisassemblyType::Null;
         }
-        Interval::new(a.first, a.last, (status, a.metadata.1))
+        Interval::new(
+            a.first,
+            a.last,
+            CallInfo {
+                typ: status,
+                cov: a.metadata.cov,
+                bin: a.metadata.bin,
+                zscore: a.metadata.zscore,
+                af: a.metadata.af,
+            },
+        )
     };
     // Remove intervals not within minimum sizes after merging.
     // Then, remerge intervals.
     let minmax_reclassified_itvs_all = merge_intervals(
         minmax_reclassified_itvs_all.into_iter(),
         1,
-        |a, b| a.metadata.0 == b.metadata.0,
-        |a, b| (a.metadata.0, (a.metadata.1 + b.metadata.1) / 2),
+        |a, b| a.metadata.typ == b.metadata.typ,
+        |a, b| CallInfo {
+            typ: a.metadata.typ,
+            cov: (a.metadata.cov + b.metadata.cov) / 2,
+            bin: a.metadata.bin,
+            zscore: a.metadata.zscore.max(b.metadata.zscore),
+            af: a.metadata.af.max(b.metadata.af),
+        },
         fn_finalizer,
     );
 
@@ -413,12 +517,14 @@ pub(crate) fn merge_misassemblies(
             Row::new(vec![
                 AnyValue::Int32(itv.first),
                 AnyValue::Int32(itv.last),
-                AnyValue::String(if itv.metadata.0 == MisassemblyType::Null {
+                AnyValue::String(if itv.metadata.typ == MisassemblyType::Null {
                     "correct"
                 } else {
-                    itv.metadata.0.into()
+                    itv.metadata.typ.into()
                 }),
-                AnyValue::UInt32(itv.metadata.1),
+                AnyValue::UInt32(itv.metadata.cov),
+                AnyValue::Float32(*itv.metadata.zscore),
+                AnyValue::Float32(*itv.metadata.af),
             ])
         })
         .collect();
@@ -430,6 +536,8 @@ pub(crate) fn merge_misassemblies(
             ("end".into(), DataType::Int32),
             ("status".into(), DataType::String),
             ("cov".into(), DataType::UInt32),
+            ("zscore".into(), DataType::Float32),
+            ("af".into(), DataType::Float32),
         ]),
     )?;
 
@@ -445,9 +553,24 @@ pub(crate) fn merge_misassemblies(
             col("end").max() - lit(1),
             col("cov").median().cast(DataType::UInt32),
             col("status").first(),
+            col("zscore").max(),
+            col("af").max(),
         ])
+        .with_column(
+            when(col("status").eq(lit("correct")))
+                .then(lit(0.0))
+                .otherwise(col("zscore"))
+                .alias("zscore"),
+        )
         .sort(["st"], Default::default())
-        .select([col("st"), col("end"), col("status"), col("cov")]))
+        .select([
+            col("st"),
+            col("end"),
+            col("status"),
+            col("cov"),
+            col("zscore"),
+            col("af"),
+        ]))
 }
 
 #[derive(Debug)]
@@ -468,40 +591,39 @@ pub(crate) fn classify_peaks(
     let thr_collapse = (cfg.cov.ratio_collapse * median_cov as f32).floor();
 
     let lf_pileup = lf_pileup
+        .with_columns([
+            (col("insertion").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                .alias("insertion_ratio"),
+            (col("deletion").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                .alias("deletion_ratio"),
+            (col("softclip").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                .alias("softclip_ratio"),
+            (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                .alias("mismatch_ratio"),
+        ])
         .with_column(
             // indels
-            // Region with insertion or deletion or soft clip that has high indel ratio and has a peak
-            // or drop in coverage and majority of bases are softclipped or indels.
+            // Region with insertion or deletion peak and has high indel ratio
             //
             // deletion
             when(
-                (col("deletion").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                col("deletion_ratio")
                     .gt_eq(lit(cfg.indel.ratio_deletion))
                     .and(col("deletion_peak").eq(lit("high")))
-                    .or(col("cov_peak").eq(lit("low")).and(
-                        ((col("deletion") + col("softclip")).cast(DataType::Float32)
-                            / col("cov").cast(DataType::Float32))
-                        .gt(lit(cfg.indel.ratio_deletion)),
-                    ))
                     .and(col("deletion").gt_eq(col("insertion"))),
             )
             .then(lit("deletion"))
             // insertion
             .when(
-                (col("insertion").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                col("insertion_ratio")
                     .gt_eq(lit(cfg.indel.ratio_insertion))
                     .and(col("insertion_peak").eq(lit("high")))
-                    .or(col("cov_peak").eq(lit("low")).and(
-                        ((col("insertion") + col("softclip")).cast(DataType::Float32)
-                            / col("cov").cast(DataType::Float32))
-                        .gt(lit(cfg.indel.ratio_insertion)),
-                    ))
                     .and(col("insertion").gt_eq(col("deletion"))),
             )
             .then(lit("insertion"))
             // softclip
             .when(
-                (col("softclip").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                col("softclip_ratio")
                     .gt_eq(lit(cfg.softclip.ratio_softclip))
                     .and(col("softclip_peak").eq(lit("high"))),
             )
@@ -548,7 +670,7 @@ pub(crate) fn classify_peaks(
                 // het_mismap
                 // Regions with high mismatch peak and het ratio.
                 .when(
-                    (col("mismatch").cast(DataType::Float32) / col("cov").cast(DataType::Float32))
+                    col("mismatch_ratio")
                         .gt_eq(lit(cfg.mismatch.ratio_het))
                         .and(col("mismatch_peak").eq(lit("high"))),
                 )
@@ -582,7 +704,7 @@ pub(crate) fn classify_peaks(
         // https://docs.rs/polars-core/0.50.0/src/polars_core/chunked_array/mod.rs.html#568
         let bin = df_bin_stats
             .column("bin")?
-            .u64()?
+            .u32()?
             .iter()
             .flatten()
             .next()
@@ -604,15 +726,6 @@ pub(crate) fn classify_peaks(
             itree_above_median: itree_above_median_cov,
         }
     };
-    /*
-    // TODO: Consolidate zscore based on call.
-    // Removed cols to reduce memory consumption.
-    col("cov_zscore"),
-    col("mismatch_zscore"),
-    col("insertion_zscore"),
-    col("deletion_zscore"),
-    col("softclip_zscore"),
-    */
     let cols = [
         col("chrom"),
         col("pos"),
@@ -625,16 +738,58 @@ pub(crate) fn classify_peaks(
         col("softclip"),
         col("bin"),
         col("bin_ident"),
+        col("zscore"),
+        col("af"),
     ];
     let df_pileup = lf_pileup
-        .with_column(lit(ctg).alias("chrom"))
+        .with_columns([
+            lit(ctg).alias("chrom"),
+            // Get the z-score.
+            when(col("status").eq(lit("deletion")))
+                .then(col("deletion_zscore"))
+                .when(col("status").eq(lit("insertion")))
+                .then(col("insertion_zscore"))
+                .when(
+                    col("status")
+                        .eq(lit("mismatch"))
+                        .or(col("status").eq(lit("het_mismap"))),
+                )
+                .then(col("mismatch_zscore"))
+                .when(col("status").eq(lit("collapse")))
+                .then(col("cov_zscore"))
+                .when(col("status").eq(lit("softclip")))
+                .then(col("softclip_zscore"))
+                .otherwise(lit(0.0))
+                .alias("zscore"),
+            // Collect the allele frequencies.
+            when(col("status").eq(lit("deletion")))
+                .then(col("deletion_ratio"))
+                .when(col("status").eq(lit("insertion")))
+                .then(col("insertion_ratio"))
+                .when(
+                    col("status")
+                        .eq(lit("mismatch"))
+                        .or(col("status").eq(lit("het_mismap"))),
+                )
+                .then(col("mismatch_ratio"))
+                .when(col("status").eq(lit("collapse")))
+                .then(max_horizontal([
+                    col("insertion_ratio").max(),
+                    col("deletion_ratio").max(),
+                    col("mismatch_ratio").max(),
+                ])?)
+                .when(col("status").eq(lit("softclip")))
+                .then(col("softclip_ratio"))
+                .otherwise(lit(0.0))
+                .alias("af"),
+        ])
         .select(cols)
         .collect()?;
 
     // Construct intervals.
-    // Store [st,end,type,cov]
+    // Store [st,end,type,cov,status,bin,zscore]
     let df_itvs = df_pileup
-        .select(["pos", "cov", "status", "bin"])?
+        .select(["pos", "cov", "status", "bin", "zscore", "af"])?
         .lazy()
         .with_column(
             ((col("pos") - col("pos").shift_and_fill(1, 0))
@@ -651,6 +806,8 @@ pub(crate) fn classify_peaks(
             col("cov").mean().cast(DataType::UInt32),
             col("status").first(),
             col("bin").first(),
+            col("zscore").max(),
+            col("af").max(),
         ])
         .drop(Selector::ByName {
             names: Arc::new(["group".into()]),

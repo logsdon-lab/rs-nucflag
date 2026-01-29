@@ -18,6 +18,7 @@ eyre = "0.6.12"
 itertools = "0.14.0"
 log = { version = "0.4.25", features = ["serde"] }
 noodles = { version = "0.96.0", features = ["bam", "bgzf", "core", "cram", "fasta", "sam"] }
+ordered-float = "5.1.0"
 # TODO: Remove timezones feature when fixed.
 # https://github.com/pola-rs/polars/issues/25148
 polars = { version = "0.52.0", features = ["dtype-u8", "lazy", "abs", "rle", "round_series", "rolling_window", "partition_by", "timezones"] }
