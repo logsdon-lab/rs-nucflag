@@ -28,10 +28,9 @@ pub(crate) fn get_whole_genome_intervals(
             );
             (1..num + 1)
                 .map(move |i| {
-                    // One-based half closed, half open intervals due to noodles
-                    // Corrected downstream.
+                    // Zero-based half closed, half open intervals
                     Interval::new(
-                        (((i - 1) * window) + 1) as i32,
+                        ((i - 1) * window) as i32,
                         (i * window) as i32,
                         ctg_name.clone(),
                     )
@@ -65,6 +64,7 @@ pub(crate) fn get_aln_intervals(
                         let new_last = itv.last.clamp(0, itv_seq_bounds.last);
                         Some(Interval::new(new_first, new_last, itv.metadata))
                     } else {
+                        log::error!("Skipping invalid interval: {itv:?}");
                         None
                     }
                 })

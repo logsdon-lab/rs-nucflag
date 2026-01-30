@@ -159,6 +159,7 @@ where
 {
     // noodles requires 1-start
     let itv = Interval::new(itv.first.clamp(1, i32::MAX), itv.last, itv.metadata.clone());
+    let st_print = itv.first - (itv.first == 1) as i32;
     let ctg = &itv.metadata;
 
     let mut aln = AlignmentFile::new(aln)?;
@@ -172,7 +173,7 @@ where
     let df_raw_pileup = merge_pileup_info(pileup.pileups, &itv, &cfg)?;
     log::info!(
         "Detecting peaks/valleys in {ctg}:{}-{}.",
-        itv.first - 1,
+        st_print,
         itv.last
     );
 
@@ -188,7 +189,7 @@ where
         vec![df_raw_pileup
             .lazy()
             .with_columns([
-                lit(0).cast(DataType::UInt64).alias("bin"),
+                lit(0).cast(DataType::UInt32).alias("bin"),
                 lit(0.0).cast(DataType::Float32).alias("bin_ident"),
             ])
             .collect()?]
@@ -205,7 +206,7 @@ where
     let df_itvs = concat(dfs_itvs, Default::default())?
         .sort(["st"], Default::default())
         .collect()?;
-    let bin_stats: HashMap<u64, BinStats> = bin_stats
+    let bin_stats: HashMap<u32, BinStats> = bin_stats
         .into_iter()
         .map(|bstats| (bstats.num, bstats))
         .collect();
@@ -214,8 +215,17 @@ where
         .collect()?;
 
     // Then merge and filter.
-    log::info!("Merging intervals in {ctg}:{}-{}.", itv.first - 1, itv.last);
+    log::info!("Merging intervals in {ctg}:{}-{}.", st_print, itv.last);
     let df_itvs_final = merge_misassemblies(df_itvs, bin_stats, ctg, fasta, ignore_itvs, cfg)?
+        .with_column(
+            // Positions from noodles are 1-based ([start, end]).
+            // We have to add by 1 if not starting by 1 to revert to contiguous, htslib like coordinates.
+            // https://github.com/zaeleus/noodles/discussions/207
+            when(col("st").eq(lit(itv.first - 1)))
+                .then(lit(st_print))
+                .otherwise(col("st"))
+                .alias("st"),
+        )
         .with_columns([
             lit(ctg.clone()).alias("chrom"),
             col("st").alias("thickStart"),
@@ -254,6 +264,8 @@ where
             col("thickStart"),
             col("thickEnd"),
             col("itemRgb"),
+            col("zscore"),
+            col("af"),
         ])
         .collect()?;
 
@@ -266,7 +278,7 @@ where
 
     log::info!(
         "Detected {n_misassemblies} misassemblies for {ctg}:{}-{}.",
-        itv.first - 1,
+        st_print,
         itv.last
     );
     Ok(NucFlagResult {

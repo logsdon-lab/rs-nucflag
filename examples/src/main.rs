@@ -15,7 +15,7 @@ core/test/ending_scaffold/aln_1.bam \
 core/test/ending_scaffold/aln_1.fa \
 core/test/ending_scaffold/aln_1.bed \
 core/nucflag.toml \
-1
+1 \
 hifi
 */
 fn cli_fasta() -> Result<(), Box<dyn Error>> {

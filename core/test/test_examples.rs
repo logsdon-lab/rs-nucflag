@@ -1,8 +1,5 @@
 use coitrees::Interval;
-use polars::{
-    io::SerReader,
-    prelude::{CsvParseOptions, CsvReadOptions},
-};
+use polars::{io::SerReader, prelude::*};
 use rs_nucflag::{
     io::{read_cfg, write_tsv},
     nucflag,
@@ -18,6 +15,7 @@ fn check_output(
     expected: Option<&str>,
     save_res: Option<&str>,
 ) {
+    // TODO: Take gzip using flate
     let itvs = std::fs::read_to_string(bed).unwrap();
     let itv = itvs
         .lines()
@@ -48,17 +46,36 @@ fn check_output(
         write_tsv(&mut res.regions, save_res).unwrap();
     }
 
+    let round_f32_val = |lf: LazyFrame| {
+        lf.with_columns([
+            col("zscore")
+                .round_sig_figs(2)
+                .cast(DataType::Float32)
+                .alias("zscore"),
+            col("af")
+                .round_sig_figs(2)
+                .cast(DataType::Float32)
+                .alias("af"),
+        ])
+        .collect()
+        .unwrap()
+    };
+
     if let Some(expected) = expected {
-        let df_expected = CsvReadOptions::default()
-            .with_has_header(true)
-            .with_parse_options(CsvParseOptions::default().with_separator(b'\t'))
-            .try_into_reader_with_file_path(Some(expected.into()))
-            .unwrap()
-            .finish()
-            .unwrap();
+        let df_input = round_f32_val(res.regions.lazy());
+        let df_expected = round_f32_val(
+            CsvReadOptions::default()
+                .with_has_header(true)
+                .with_parse_options(CsvParseOptions::default().with_separator(b'\t'))
+                .try_into_reader_with_file_path(Some(expected.into()))
+                .unwrap()
+                .finish()
+                .unwrap()
+                .lazy(),
+        );
 
         assert_eq!(
-            res.regions, df_expected,
+            df_input, df_expected,
             "Called regions for ({aln}) not equal."
         );
     }
@@ -166,6 +183,24 @@ fn test_minor_collapse() {
             check_output(&aln, &bed, None, None, None, Some(&expected));
         } else {
             check_output(&aln, &bed, None, None, Some(&expected), None)
+        }
+    }
+}
+
+#[test]
+fn test_collapse() {
+    let indir = "test/collapse/input";
+    let expdir = "test/collapse/expected";
+    {
+        let aln = format!("{indir}/aln_1.bam");
+        let bed = format!("{indir}/aln_1.bed");
+        let expected = format!("{expdir}/aln_1.bed");
+        let cfg = format!("{indir}/aln_1.toml");
+        let fa = format!("{indir}/aln_1.fa.gz");
+        if GENERATE_BEDS {
+            check_output(&aln, &bed, Some(&fa), Some(&cfg), None, Some(&expected));
+        } else {
+            check_output(&aln, &bed, Some(&fa), Some(&cfg), Some(&expected), None)
         }
     }
 }

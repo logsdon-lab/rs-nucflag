@@ -61,7 +61,7 @@ pub fn write_itvs<T: Debug + Clone>(
 /// use coitrees::Interval;
 ///
 /// let records = read_bed(
-///     "core/test/standard/region.bed",
+///     "test/standard/input/aln_1.bed",
 ///     |name: &str, start: u64, stop: u64, other_cols: &str| Interval::new(start as i32, stop as i32, None::<&str>)
 /// );
 /// ```
@@ -71,7 +71,7 @@ pub fn write_itvs<T: Debug + Clone>(
 /// use coitrees::Interval;
 ///
 /// let records = read_bed(
-///     "core/test/standard/region.bed",
+///     "test/standard/input/aln_1.bed",
 ///     |name: &str, start: u64, stop: u64, other_cols: &str| Interval::new(start as i32, stop as i32, Some(other_cols.to_owned()))
 /// );
 /// ```
@@ -80,12 +80,12 @@ pub fn read_bed<T: Clone + Debug>(
     intervals_fn: impl Fn(&str, u64, u64, &str) -> Interval<T>,
 ) -> Option<Vec<Interval<T>>> {
     let mut intervals = Vec::new();
-    let bed_fh = File::open(bed).ok()?;
+    let bed_fh = File::open(bed).expect("Cannot open bedfile");
     let bed_reader = BufReader::new(bed_fh);
 
     for line in bed_reader.lines() {
         let Ok(line) = line else {
-            log::error!("Invalid line: {line:?}");
+            log::error!("Invalid line: '{line:?}'");
             continue;
         };
         let (name, start, stop, other_cols) =
@@ -94,11 +94,11 @@ pub fn read_bed<T: Clone + Debug>(
             } else if let Some((name, start, stop)) = line.splitn(3, '\t').collect_tuple() {
                 (name, start, stop, "")
             } else {
-                log::error!("Invalid line: {line}");
+                log::error!("Invalid line: '{line}'");
                 continue;
             };
         let (Ok(first), Ok(last)) = (start.parse::<u64>(), stop.parse::<u64>()) else {
-            log::error!("Cannot parse {start} or {stop} for {line}");
+            log::error!("Cannot parse {start} or {stop} in line: '{line}'");
             continue;
         };
 
@@ -162,7 +162,6 @@ impl FastaHandle {
             let gzi = index_reader.index().clone();
 
             if let Ok(fai) = fai {
-                log::debug!("Existing fai index found for {fa_path:?}");
                 return Ok((fai, Some(gzi)));
             }
             log::debug!("No existing faidx for {fa_path:?}. Generating...");
