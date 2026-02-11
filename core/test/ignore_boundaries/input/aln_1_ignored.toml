@@ -18,6 +18,7 @@ ratio_false_dup = 0.5
 
 [mismatch]
 n_zscores_high = 3.5
+ratio_low_quality = 0.5
 ratio_het = 0.2
 
 [indel]

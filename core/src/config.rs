@@ -83,7 +83,8 @@ pub struct MinimumSizeConfig {
     pub collapse: usize,
     pub mismatch: usize,
     pub misjoin: usize,
-    pub het_mismap: usize,
+    pub het_or_mismap: usize,
+    pub low_quality: usize,
     pub false_dup: usize,
     pub softclip: usize,
     pub insertion: usize,
@@ -105,7 +106,8 @@ impl TryFrom<&MinimumSizeConfig> for HashMap<MisassemblyType, u64> {
             (MisassemblyType::FalseDup, cfg.false_dup.try_into()?),
             (MisassemblyType::Insertion, cfg.insertion.try_into()?),
             (MisassemblyType::Deletion, cfg.deletion.try_into()?),
-            (MisassemblyType::HetMismap, cfg.het_mismap.try_into()?),
+            (MisassemblyType::HetOrMismap, cfg.het_or_mismap.try_into()?),
+            (MisassemblyType::LowQuality, cfg.low_quality.try_into()?),
             (MisassemblyType::Misjoin, cfg.misjoin.try_into()?),
             (MisassemblyType::Mismatch, cfg.mismatch.try_into()?),
             (MisassemblyType::SoftClip, cfg.softclip.try_into()?),
@@ -140,7 +142,8 @@ impl Default for MinimumSizeConfig {
             collapse: 500,
             mismatch: 1,
             misjoin: 1,
-            het_mismap: 1,
+            het_or_mismap: 1,
+            low_quality: 1,
             false_dup: 500,
             softclip: 1,
             insertion: 1,
@@ -257,7 +260,9 @@ impl Default for MAPQConfig {
 pub struct MismatchConfig {
     /// Number of z-scores above the median to flag.
     pub n_zscores_high: f32,
-    /// Ratio used to split hets from small collapses.
+    /// Ratio for low quality regions.
+    pub ratio_low_quality: f32,
+    /// Ratio for heterozygous or mismapped sites.
     pub ratio_het: f32,
     /// Window to apply rolling mean filter. Reduces noise.
     pub rolling_mean_window: Option<usize>,
@@ -267,6 +272,7 @@ impl Default for MismatchConfig {
     fn default() -> Self {
         Self {
             n_zscores_high: 3.5,
+            ratio_low_quality: 0.5,
             ratio_het: 0.2,
             rolling_mean_window: None,
         }

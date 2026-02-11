@@ -10,34 +10,8 @@ pub(crate) fn get_whole_genome_intervals(
 ) -> Result<Vec<Interval<String>>, PyErr> {
     // If no intervals, apply to whole genome based on header.
     let mut aln = AlignmentFile::new(aln).map_err(|err| PyValueError::new_err(err.to_string()))?;
-    let header = aln
-        .header()
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
-    Ok(header
-        .reference_sequences()
-        .into_iter()
-        .flat_map(|(ctg, ref_seq)| {
-            let ctg_name: String = ctg.clone().try_into().unwrap();
-            let length: usize = ref_seq.length().get();
-            let (num, rem) = (length / window, length % window);
-            let final_start = num * window;
-            let final_itv = Interval::new(
-                (final_start + 1) as i32,
-                (final_start + rem) as i32,
-                ctg_name.clone(),
-            );
-            (1..num + 1)
-                .map(move |i| {
-                    // Zero-based half closed, half open intervals
-                    Interval::new(
-                        ((i - 1) * window) as i32,
-                        (i * window) as i32,
-                        ctg_name.clone(),
-                    )
-                })
-                .chain([final_itv])
-        })
-        .collect())
+    aln.aligned_intervals_windows(window)
+        .map_err(|err| PyValueError::new_err(err.to_string()))
 }
 
 pub(crate) fn get_aln_intervals(

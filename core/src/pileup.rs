@@ -95,6 +95,41 @@ pub enum AlignmentFile {
     Bam(bam::io::IndexedReader<bgzf::Reader<File>>),
 }
 
+impl AlignmentFile {
+    /// Get aligned intervals from header in windows.
+    pub fn aligned_intervals_windows(
+        &mut self,
+        window: usize,
+    ) -> eyre::Result<Vec<Interval<String>>> {
+        let header = self.header()?;
+        Ok(header
+            .reference_sequences()
+            .into_iter()
+            .flat_map(move |(ctg, ref_seq)| {
+                let ctg_name: String = ctg.clone().try_into().unwrap();
+                let length: usize = ref_seq.length().get();
+                let (num, rem) = (length / window, length % window);
+                let final_start = num * window;
+                let final_itv = Interval::new(
+                    final_start as i32,
+                    (final_start + rem) as i32,
+                    ctg_name.clone(),
+                );
+                (1..num + 1)
+                    .map(move |i| {
+                        // Zero-based half closed, half open intervals
+                        Interval::new(
+                            ((i - 1) * window) as i32,
+                            (i * window) as i32,
+                            ctg_name.clone(),
+                        )
+                    })
+                    .chain([final_itv])
+            })
+            .collect())
+    }
+}
+
 impl PileupInfo {
     pub fn median_mapq(&self) -> Option<u8> {
         let length = self.mapq.len();
@@ -482,10 +517,16 @@ pub(crate) fn merge_pileup_info(
 
 #[cfg(test)]
 mod test {
+    use std::{
+        fs::File,
+        io::{BufRead, BufReader},
+    };
+
     use crate::{
         config::Config,
         pileup::{merge_pileup_info, update_cigar, AlignmentFile, PileupInfo, PileupSummary},
     };
+    use coitrees::Interval;
     use noodles::core::{Position, Region};
     use noodles::sam::alignment::{
         record::{
@@ -752,5 +793,38 @@ mod test {
         // Already proper cigar
         let new_cg = update_cigar(&cg, &data).unwrap();
         assert_eq!(new_cg.unwrap(), cg_exp)
+    }
+
+    #[test]
+    fn test_aligned_intervals() {
+        let reader = noodles::bgzf::Reader::new(BufReader::new(
+            File::open("test/pileup/expected/aligned_intervals.bed.gz").unwrap(),
+        ));
+        let expected_itvs: Vec<Interval<String>> = reader
+            .lines()
+            .map_while(Result::ok)
+            .map(|line| {
+                let elems: Vec<&str> = line.split('\t').collect();
+                Interval::new(
+                    elems[1].parse::<i32>().unwrap(),
+                    elems[2].parse().unwrap(),
+                    elems[0].to_owned(),
+                )
+            })
+            .collect();
+
+        let mut bam = AlignmentFile::new("test/pileup/input/test.bam").unwrap();
+        let result_itvs = bam.aligned_intervals_windows(10_000_000).unwrap();
+        // for itv in result_itvs {
+        //     println!("{}\t{}\t{}", itv.metadata, itv.first, itv.last)
+        // }
+        for (itv, exp_itv) in result_itvs.into_iter().zip(expected_itvs.into_iter()) {
+            let itv_t = (itv.first, itv.last, &itv.metadata);
+            let exp_itv_t = (exp_itv.first, exp_itv.last, &exp_itv.metadata);
+            assert_eq!(
+                itv_t, exp_itv_t,
+                "Aligned intervals are different {itv_t:?} != {exp_itv_t:?}"
+            );
+        }
     }
 }

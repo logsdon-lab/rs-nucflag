@@ -160,5 +160,14 @@
         "output_png": "collapse/expected/NA18534_chr20_haplotype2-0000098_25822788-30367637.png",
         "final_png": "collapse/expected/aln_1.png",
         "additional_flags": ["--add_builtin_tracks", "mapq", "ident"]
+    },
+    "inversion_1": {
+        "bam": "inversion/input/aln_1.bam",
+        "bed": "inversion/input/aln_1.bed",
+        "config": "inversion/input/aln_1.toml",
+        "fasta": "inversion/input/aln_1.fa.gz",
+        "output_png": "inversion/expected/ptg000029l_26493973-26814232.png",
+        "final_png": "inversion/expected/aln_1.png",
+        "additional_flags": ["--add_builtin_tracks", "mapq", "ident", "--overlap_calls"]
     }
 }
