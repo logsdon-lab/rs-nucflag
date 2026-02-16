@@ -667,14 +667,25 @@ pub(crate) fn classify_peaks(
             // Region that mismatches the assembly and has non-zero coverage.
             when(col("cov").eq(col("mismatch")).and(col("cov").neq(lit(0))))
                 .then(lit("mismatch"))
-                // het_mismap
-                // Regions with high mismatch peak and het ratio.
+                // het_or_mismap
+                // Regions with high mismatch peak and exceeds min ratio but below ratio het.
+                // Difficult to determine from alignments. Could be cell culture artifacts or mismapping from collapsed/misjoined sequence.
+                .when(
+                    col("mismatch_ratio").gt(lit(cfg.mismatch.ratio_het)).and(
+                        col("mismatch_ratio")
+                            .lt_eq(lit(cfg.mismatch.ratio_low_quality))
+                            .and(col("mismatch_peak").eq(lit("high"))),
+                    ),
+                )
+                .then(lit("het_or_mismap"))
+                // low_quality
+                // Regions with high mismatch peak and exceeds low quality ratio.
                 .when(
                     col("mismatch_ratio")
-                        .gt_eq(lit(cfg.mismatch.ratio_het))
+                        .gt(lit(cfg.mismatch.ratio_low_quality))
                         .and(col("mismatch_peak").eq(lit("high"))),
                 )
-                .then(lit("het_mismap"))
+                .then(lit("low_quality"))
                 .otherwise(col("status"))
                 .alias("status"),
         );
@@ -752,7 +763,8 @@ pub(crate) fn classify_peaks(
                 .when(
                     col("status")
                         .eq(lit("mismatch"))
-                        .or(col("status").eq(lit("het_mismap"))),
+                        .or(col("status").eq(lit("low_quality")))
+                        .or(col("status").eq(lit("het_or_mismap"))),
                 )
                 .then(col("mismatch_zscore"))
                 .when(col("status").eq(lit("collapse")))
@@ -769,7 +781,8 @@ pub(crate) fn classify_peaks(
                 .when(
                     col("status")
                         .eq(lit("mismatch"))
-                        .or(col("status").eq(lit("het_mismap"))),
+                        .or(col("status").eq(lit("low_quality")))
+                        .or(col("status").eq(lit("het_or_mismap"))),
                 )
                 .then(col("mismatch_ratio"))
                 .when(col("status").eq(lit("collapse")))

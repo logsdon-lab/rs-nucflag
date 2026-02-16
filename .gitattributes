@@ -69,3 +69,5 @@ core/test/misjoin/input/aln_2.bam filter=lfs diff=lfs merge=lfs -text
 core/test/collapse/expected/aln_1.bed filter=lfs diff=lfs merge=lfs -text
 core/test/collapse/input/aln_1.fa.gz filter=lfs diff=lfs merge=lfs -text
 core/test/collapse/input/aln_1.bam filter=lfs diff=lfs merge=lfs -text
+core/test/inversion/input/aln_1.fa.gz filter=lfs diff=lfs merge=lfs -text
+core/test/inversion/input/aln_1.bam filter=lfs diff=lfs merge=lfs -text
