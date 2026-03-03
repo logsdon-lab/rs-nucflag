@@ -16,7 +16,7 @@ use polars::lazy::dsl::max_horizontal;
 use polars::{frame::row::Row, prelude::*};
 
 #[derive(Debug, Clone)]
-struct CallInfo {
+pub(crate) struct CallInfo {
     typ: MisassemblyType,
     cov: u32,
     bin: u32,
@@ -264,6 +264,7 @@ pub(crate) fn merge_misassemblies(
     let final_misasm_itvs: COITree<(MisassemblyType, u32), usize> =
         COITree::new(itvs_misasm.iter());
     let thr_minimum_sizes: HashMap<MisassemblyType, u64> = (&cfg_min_size).try_into()?;
+    // crate::io::write_itvs(itvs_misasm.iter().cloned(), Some("test_before.tsv"))?;
 
     let mut fasta_reader = if let Some(fasta) = fasta {
         log::info!("Reading indexed {fasta:?} for {ctg} to classify misassemblies by repeat.");
@@ -303,7 +304,7 @@ pub(crate) fn merge_misassemblies(
             .unwrap_or(mtype);
 
         // Detect scaffold/homopolymer/repeat and replace type.
-        let status = if let (Some(reader), Some(cfg_rpt)) = (
+        let mut status = if let (Some(reader), Some(cfg_rpt)) = (
             fasta_reader.as_mut(),
             // Must have repeat config and the current status must be in types to check.
             cfg.repeat
@@ -359,6 +360,15 @@ pub(crate) fn merge_misassemblies(
             continue;
         }
 
+        // Handle case where should not add insertion/deletion between repeat types
+        if matches!(
+            status,
+            MisassemblyType::Insertion | MisassemblyType::Deletion
+        ) && zscore == 0.0
+        {
+            status = mtype
+        }
+
         // Otherwise, add misassembly.
         reclassified_itvs_all.push(Interval::new(
             st,
@@ -375,6 +385,7 @@ pub(crate) fn merge_misassemblies(
 
     // Keep sorted.
     reclassified_itvs_all.sort_by(|a, b| a.first.cmp(&b.first));
+    // crate::io::write_itvs(reclassified_itvs_all.iter().cloned(), Some("test_after.tsv"))?;
 
     // Ignore boundary misassemblies.
     if cfg.general.ignore_boundaries {
