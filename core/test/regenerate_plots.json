@@ -169,5 +169,15 @@
         "output_png": "inversion/expected/ptg000029l_26493973-26814232.png",
         "final_png": "inversion/expected/aln_1.png",
         "additional_flags": ["--add_builtin_tracks", "mapq", "ident", "--overlap_calls"]
+    },
+    "no_indel_merging_1": {
+        "bam": "no_indel_merging/input/aln_1.bam",
+        "bed": "no_indel_merging/input/aln_1.bed",
+        "config": "no_indel_merging/input/aln_1.toml",
+        "fasta": "no_indel_merging/input/aln_1.fa.gz",
+        "output_png": "no_indel_merging/expected/chr10_hap2_14250000-14300000.png",
+        "final_png": "no_indel_merging/expected/aln_1.png",
+        "additional_flags": ["--add_builtin_tracks", "mapq", "ident", "--overlap_calls"]
     }
+
 }

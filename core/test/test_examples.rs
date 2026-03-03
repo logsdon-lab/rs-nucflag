@@ -225,6 +225,24 @@ fn test_inversion() {
 }
 
 #[test]
+fn test_dont_merge_across_indel() {
+    let indir = "test/no_indel_merging/input";
+    let expdir = "test/no_indel_merging/expected";
+    {
+        let aln = format!("{indir}/aln_1.bam");
+        let bed = format!("{indir}/aln_1.bed");
+        let expected = format!("{expdir}/aln_1.bed");
+        let cfg = format!("{indir}/aln_1.toml");
+        let fa = format!("{indir}/aln_1.fa.gz");
+        if GENERATE_BEDS {
+            check_output(&aln, &bed, Some(&fa), Some(&cfg), None, Some(&expected));
+        } else {
+            check_output(&aln, &bed, Some(&fa), Some(&cfg), Some(&expected), None)
+        }
+    }
+}
+
+#[test]
 fn test_misjoin() {
     let indir = "test/misjoin/input";
     let expdir = "test/misjoin/expected";
