@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 use crate::{binning::BinStats, config::Config};
 use coitrees::{COITree, Interval, IntervalTree};
-use polars::lazy::dsl::max_horizontal;
 use polars::prelude::*;
 
 fn get_itree_above_median(
@@ -268,11 +267,16 @@ pub(crate) fn classify_peaks(
                 )
                 .then(col("mismatch_ratio"))
                 .when(col("status").eq(lit("collapse")))
-                .then(max_horizontal([
-                    col("insertion_ratio").max(),
-                    col("deletion_ratio").max(),
-                    col("mismatch_ratio").max(),
-                ])?)
+                // Re-implementation of polars::lazy::dsl::max_horizontal
+                // Compiler complains. See https://github.com/pola-rs/polars/issues/19335
+                .then(Expr::n_ary(
+                    FunctionExpr::MaxHorizontal,
+                    vec![
+                        col("insertion_ratio").max(),
+                        col("deletion_ratio").max(),
+                        col("mismatch_ratio").max(),
+                    ],
+                ))
                 .when(col("status").eq(lit("softclip")))
                 .then(col("softclip_ratio"))
                 .otherwise(lit(0.0))

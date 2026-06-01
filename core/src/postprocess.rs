@@ -285,7 +285,7 @@ pub(crate) fn postprocess_misassemblies(
     }
 
     // Keep sorted.
-    reclassified_itvs_all.sort_by(|a, b| a.first.cmp(&b.first));
+    reclassified_itvs_all.sort_by_key(|a| a.first);
     // crate::io::write_itvs(reclassified_itvs_all.iter().cloned(), Some("test_after.tsv"))?;
 
     // Ignore boundary misassemblies.

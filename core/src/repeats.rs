@@ -70,10 +70,7 @@ pub fn detect_largest_repeat(seq: &str) -> Option<RepeatSummary<'_>> {
     let mut positions_iter = positions.iter().sorted().peekable();
     let mut total_length = 0;
     let mut differences = vec![];
-    loop {
-        let Some(pos) = positions_iter.next() else {
-            break;
-        };
+    while let Some(pos) = positions_iter.next() {
         let Some(next_pos) = positions_iter.peek() else {
             total_length += largest_sfx_length;
             break;
