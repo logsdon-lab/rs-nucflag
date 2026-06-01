@@ -3,11 +3,12 @@ use std::{collections::HashMap, fmt::Debug, path::Path, str::FromStr};
 
 use crate::{
     binning::{group_pileup_by_ani, BinStats},
-    classify::{classify_peaks, merge_misassemblies, NucFlagResult},
+    classify::{classify_peaks, NucFlagResult},
     config::Config,
     misassembly::MisassemblyType,
     peak::find_peaks,
     pileup::{merge_pileup_info, AlignmentFile},
+    postprocess::postprocess_misassemblies,
 };
 use coitrees::{COITree, Interval};
 use polars::prelude::*;
@@ -216,58 +217,59 @@ where
 
     // Then merge and filter.
     log::info!("Merging intervals in {ctg}:{}-{}.", st_print, itv.last);
-    let df_itvs_final = merge_misassemblies(df_itvs, bin_stats, ctg, fasta, ignore_itvs, cfg)?
-        .with_column(
-            // Positions from noodles are 1-based ([start, end]).
-            // We have to add by 1 if not starting by 1 to revert to contiguous, htslib like coordinates.
-            // https://github.com/zaeleus/noodles/discussions/207
-            when(col("st").eq(lit(itv.first - 1)))
-                .then(lit(st_print))
-                .otherwise(col("st"))
-                .alias("st"),
-        )
-        .with_columns([
-            lit(ctg.clone()).alias("chrom"),
-            col("st").alias("thickStart"),
-            col("end").alias("thickEnd"),
-            lit(".").alias("strand"),
-            // Convert statuses into colors.
-            col("status")
-                .map(
-                    |statuses| {
-                        Ok(Column::new(
-                            "itemRgb".into(),
-                            statuses
-                                .str()?
-                                .iter()
-                                .flatten()
-                                .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
-                                .collect::<Vec<&str>>(),
-                        ))
-                    },
-                    |_schema, field| Ok(field.clone()),
-                )
-                .alias("itemRgb"),
-        ])
-        .rename(
-            ["chrom", "st", "end", "status", "cov"],
-            ["#chrom", "chromStart", "chromEnd", "name", "score"],
-            true,
-        )
-        .select([
-            col("#chrom"),
-            col("chromStart"),
-            col("chromEnd"),
-            col("name"),
-            col("score"),
-            col("strand"),
-            col("thickStart"),
-            col("thickEnd"),
-            col("itemRgb"),
-            col("zscore"),
-            col("af"),
-        ])
-        .collect()?;
+    let df_itvs_final =
+        postprocess_misassemblies(df_itvs, bin_stats, ctg, fasta, ignore_itvs, cfg)?
+            .with_column(
+                // Positions from noodles are 1-based ([start, end]).
+                // We have to add by 1 if not starting by 1 to revert to contiguous, htslib like coordinates.
+                // https://github.com/zaeleus/noodles/discussions/207
+                when(col("st").eq(lit(itv.first - 1)))
+                    .then(lit(st_print))
+                    .otherwise(col("st"))
+                    .alias("st"),
+            )
+            .with_columns([
+                lit(ctg.clone()).alias("chrom"),
+                col("st").alias("thickStart"),
+                col("end").alias("thickEnd"),
+                lit(".").alias("strand"),
+                // Convert statuses into colors.
+                col("status")
+                    .map(
+                        |statuses| {
+                            Ok(Column::new(
+                                "itemRgb".into(),
+                                statuses
+                                    .str()?
+                                    .iter()
+                                    .flatten()
+                                    .map(|s| MisassemblyType::from_str(s).unwrap().item_rgb())
+                                    .collect::<Vec<&str>>(),
+                            ))
+                        },
+                        |_schema, field| Ok(field.clone()),
+                    )
+                    .alias("itemRgb"),
+            ])
+            .rename(
+                ["chrom", "st", "end", "status", "cov"],
+                ["#chrom", "chromStart", "chromEnd", "name", "score"],
+                true,
+            )
+            .select([
+                col("#chrom"),
+                col("chromStart"),
+                col("chromEnd"),
+                col("name"),
+                col("score"),
+                col("strand"),
+                col("thickStart"),
+                col("thickEnd"),
+                col("itemRgb"),
+                col("zscore"),
+                col("af"),
+            ])
+            .collect()?;
 
     let (n_misassemblies, _) = df_itvs_final
         .select(["name"])?

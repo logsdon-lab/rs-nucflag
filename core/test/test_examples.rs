@@ -1,4 +1,4 @@
-use coitrees::Interval;
+use coitrees::{COITree, Interval, IntervalTree};
 use polars::{io::SerReader, prelude::*};
 use rs_nucflag::{
     io::{read_cfg, write_tsv},
@@ -14,6 +14,7 @@ fn check_output(
     config: Option<&str>,
     expected: Option<&str>,
     save_res: Option<&str>,
+    ignore_itvs: Option<&str>,
 ) {
     // TODO: Take gzip using flate
     let itvs = std::fs::read_to_string(bed).unwrap();
@@ -31,11 +32,30 @@ fn check_output(
             )
         })
         .unwrap();
+
+    let ignored_itvs: Option<COITree<String, usize>> = ignore_itvs.map(|bed| {
+        let bed_str = std::fs::read_to_string(bed).unwrap();
+        let itvs: Vec<Interval<String>> = bed_str
+            .lines()
+            .map(|line| {
+                let [chrom, st, end] = line.split('\t').collect::<Vec<&str>>()[..] else {
+                    panic!("Invalid bed.")
+                };
+                Interval::new(
+                    st.parse::<i32>().unwrap(),
+                    end.parse::<i32>().unwrap(),
+                    chrom.to_owned(),
+                )
+            })
+            .collect();
+        COITree::new(itvs.iter())
+    });
+
     let mut res = nucflag(
         aln,
         fasta,
         &itv,
-        None,
+        ignored_itvs.as_ref(),
         config
             .map(|cfg| read_cfg(Some(cfg), None).unwrap())
             .unwrap_or_default(),
@@ -91,9 +111,9 @@ fn test_dupes() {
         let expected = format!("{expdir}/{case}.bed");
 
         if GENERATE_BEDS {
-            check_output(&aln, &bed, None, None, None, Some(&expected));
+            check_output(&aln, &bed, None, None, None, Some(&expected), None);
         } else {
-            check_output(&aln, &bed, None, None, Some(&expected), None)
+            check_output(&aln, &bed, None, None, Some(&expected), None, None)
         }
     }
 }
@@ -109,9 +129,9 @@ fn test_ending_scaffold() {
         let bed = format!("{indir}/{case}.bed");
         let expected = format!("{expdir}/{case}.bed");
         if GENERATE_BEDS {
-            check_output(&aln, &bed, Some(&fa), None, None, Some(&expected));
+            check_output(&aln, &bed, Some(&fa), None, None, Some(&expected), None);
         } else {
-            check_output(&aln, &bed, Some(&fa), None, Some(&expected), None)
+            check_output(&aln, &bed, Some(&fa), None, Some(&expected), None, None)
         }
     }
 }
@@ -127,9 +147,9 @@ fn test_ignore_low_cov_boundaries() {
         let expected = format!("{expdir}{suffix}/{case}.bed");
 
         if GENERATE_BEDS {
-            check_output(&aln, &bed, None, Some(&cfg), None, Some(&expected));
+            check_output(&aln, &bed, None, Some(&cfg), None, Some(&expected), None);
         } else {
-            check_output(&aln, &bed, None, Some(&cfg), Some(&expected), None)
+            check_output(&aln, &bed, None, Some(&cfg), Some(&expected), None, None)
         }
     }
 }
@@ -146,9 +166,9 @@ fn test_het() {
         let expected = format!("{expdir}/{case}.bed");
 
         if GENERATE_BEDS {
-            check_output(&aln, &bed, None, Some(&cfg), None, Some(&expected));
+            check_output(&aln, &bed, None, Some(&cfg), None, Some(&expected), None);
         } else {
-            check_output(&aln, &bed, None, Some(&cfg), Some(&expected), None)
+            check_output(&aln, &bed, None, Some(&cfg), Some(&expected), None, None)
         }
     }
 }
@@ -164,9 +184,9 @@ fn test_hsat() {
         let bed = format!("{indir}/{case}.bed");
         let expected = format!("{expdir}/{case}.bed");
         if GENERATE_BEDS {
-            check_output(&aln, &bed, Some(&fa), None, None, Some(&expected));
+            check_output(&aln, &bed, Some(&fa), None, None, Some(&expected), None);
         } else {
-            check_output(&aln, &bed, Some(&fa), None, Some(&expected), None)
+            check_output(&aln, &bed, Some(&fa), None, Some(&expected), None, None)
         }
     }
 }
@@ -180,9 +200,9 @@ fn test_minor_collapse() {
         let bed = format!("{indir}/{case}.bed");
         let expected = format!("{expdir}/{case}.bed");
         if GENERATE_BEDS {
-            check_output(&aln, &bed, None, None, None, Some(&expected));
+            check_output(&aln, &bed, None, None, None, Some(&expected), None);
         } else {
-            check_output(&aln, &bed, None, None, Some(&expected), None)
+            check_output(&aln, &bed, None, None, Some(&expected), None, None)
         }
     }
 }
@@ -198,9 +218,25 @@ fn test_collapse() {
         let cfg = format!("{indir}/aln_1.toml");
         let fa = format!("{indir}/aln_1.fa.gz");
         if GENERATE_BEDS {
-            check_output(&aln, &bed, Some(&fa), Some(&cfg), None, Some(&expected));
+            check_output(
+                &aln,
+                &bed,
+                Some(&fa),
+                Some(&cfg),
+                None,
+                Some(&expected),
+                None,
+            );
         } else {
-            check_output(&aln, &bed, Some(&fa), Some(&cfg), Some(&expected), None)
+            check_output(
+                &aln,
+                &bed,
+                Some(&fa),
+                Some(&cfg),
+                Some(&expected),
+                None,
+                None,
+            )
         }
     }
 }
@@ -217,9 +253,25 @@ fn test_inversion() {
         let cfg = format!("{indir}/aln_1.toml");
         let fa = format!("{indir}/aln_1.fa.gz");
         if GENERATE_BEDS {
-            check_output(&aln, &bed, Some(&fa), Some(&cfg), None, Some(&expected));
+            check_output(
+                &aln,
+                &bed,
+                Some(&fa),
+                Some(&cfg),
+                None,
+                Some(&expected),
+                None,
+            );
         } else {
-            check_output(&aln, &bed, Some(&fa), Some(&cfg), Some(&expected), None)
+            check_output(
+                &aln,
+                &bed,
+                Some(&fa),
+                Some(&cfg),
+                Some(&expected),
+                None,
+                None,
+            )
         }
     }
 }
@@ -235,9 +287,25 @@ fn test_dont_merge_across_indel() {
         let cfg = format!("{indir}/aln_1.toml");
         let fa = format!("{indir}/aln_1.fa.gz");
         if GENERATE_BEDS {
-            check_output(&aln, &bed, Some(&fa), Some(&cfg), None, Some(&expected));
+            check_output(
+                &aln,
+                &bed,
+                Some(&fa),
+                Some(&cfg),
+                None,
+                Some(&expected),
+                None,
+            );
         } else {
-            check_output(&aln, &bed, Some(&fa), Some(&cfg), Some(&expected), None)
+            check_output(
+                &aln,
+                &bed,
+                Some(&fa),
+                Some(&cfg),
+                Some(&expected),
+                None,
+                None,
+            )
         }
     }
 }
@@ -251,9 +319,9 @@ fn test_misjoin() {
         let bed = format!("{indir}/{case}.bed");
         let expected = format!("{expdir}/{case}.bed");
         if GENERATE_BEDS {
-            check_output(&aln, &bed, None, None, None, Some(&expected));
+            check_output(&aln, &bed, None, None, None, Some(&expected), None);
         } else {
-            check_output(&aln, &bed, None, None, Some(&expected), None)
+            check_output(&aln, &bed, None, None, Some(&expected), None, None)
         }
     }
 }
@@ -268,9 +336,43 @@ fn test_standard() {
         let bed = format!("{indir}/{case}.bed");
         let expected = format!("{expdir}/{case}.bed");
         if GENERATE_BEDS {
-            check_output(&aln, &bed, None, None, None, Some(&expected));
+            check_output(&aln, &bed, None, None, None, Some(&expected), None);
         } else {
-            check_output(&aln, &bed, None, None, Some(&expected), None)
+            check_output(&aln, &bed, None, None, Some(&expected), None, None)
+        }
+    }
+}
+
+#[test]
+fn test_standard_ignore_bed() {
+    let indir = "test/standard/input";
+    let expdir = "test/standard/expected";
+    {
+        let case = "aln_1";
+        let aln = format!("{indir}/{case}.bam");
+        let bed = format!("{indir}/{case}.bed");
+        let ignore_bed = format!("{indir}/{case}_ignore.bed");
+        let expected = format!("{expdir}/{case}_ignore.bed");
+        if GENERATE_BEDS {
+            check_output(
+                &aln,
+                &bed,
+                None,
+                None,
+                None,
+                Some(&expected),
+                Some(&ignore_bed),
+            );
+        } else {
+            check_output(
+                &aln,
+                &bed,
+                None,
+                None,
+                Some(&expected),
+                None,
+                Some(&ignore_bed),
+            )
         }
     }
 }
@@ -286,9 +388,25 @@ fn test_ignore_false_collapse() {
         let bed = format!("{indir}/{case}.bed");
         let expected = format!("{expdir}/{case}.bed");
         if GENERATE_BEDS {
-            check_output(&aln, &bed, Some(&fa), Some(&cfg), None, Some(&expected));
+            check_output(
+                &aln,
+                &bed,
+                Some(&fa),
+                Some(&cfg),
+                None,
+                Some(&expected),
+                None,
+            );
         } else {
-            check_output(&aln, &bed, Some(&fa), Some(&cfg), Some(&expected), None)
+            check_output(
+                &aln,
+                &bed,
+                Some(&fa),
+                Some(&cfg),
+                Some(&expected),
+                None,
+                None,
+            )
         }
     }
 }
