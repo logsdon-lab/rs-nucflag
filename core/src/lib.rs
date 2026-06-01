@@ -6,6 +6,7 @@ pub mod io;
 pub mod misassembly;
 pub mod peak;
 pub mod pileup;
+pub mod postprocess;
 pub mod preset;
 pub mod repeats;
 
