@@ -12,6 +12,7 @@ name = "examples"
 path = "test/test_examples.rs"
 
 [dependencies]
+cg2cs = { git = "https://github.com/koisland/cg2cs", rev="196ca392463741b0cc9190e19b6a196ecc9c4885", version = "0.1.0" }
 clap = { version = "4.5.29", features = ["derive"] }
 coitrees = "0.4.0"
 eyre = "0.6.12"
@@ -23,7 +24,7 @@ ordered-float = "5.1.0"
 # https://github.com/pola-rs/polars/issues/25148
 polars = { version = "0.52.0", features = ["dtype-u8", "lazy", "abs", "rle", "round_series", "rolling_window", "partition_by", "timezones"] }
 rayon = "1.10.0"
-rs-moddotplot = { git = "https://github.com/logsdon-lab/rs-moddotplot.git", rev = "e6439eaf7eeeba8702c12e0e4347c2127974d5f6", version = "0.1.0" }
+rs-moddotplot = { git = "https://github.com/logsdon-lab/rs-moddotplot.git", rev = "41d007e311b61898442482fbf5654c0dbf162fd2", version = "0.1.0" }
 serde = "1.0.217"
 suffix = "1.3.0"
 toml = "0.8.20"
