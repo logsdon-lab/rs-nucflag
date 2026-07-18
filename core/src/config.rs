@@ -58,6 +58,7 @@ impl Default for Config {
 }
 
 impl Config {
+    #[allow(unused)]
     /// Merge two config structs take self as base. Only used for optional config sections.
     pub(crate) fn merge(self, other: Config) -> Self {
         Self {

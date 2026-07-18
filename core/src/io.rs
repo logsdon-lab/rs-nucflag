@@ -18,6 +18,7 @@ use polars::prelude::*;
 
 use crate::{config::Config, preset::Preset};
 
+#[allow(unused)]
 /// Write TSV file to file or stdout.
 pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Result<()> {
     let mut file: Box<dyn Write> = if let Some(path) = path {
@@ -48,6 +49,7 @@ pub fn write_itvs<T: Debug + Clone>(
     Ok(())
 }
 
+#[allow(unused)]
 /// Read a BED file and return a list of [`Interval`]s.
 ///
 /// # Arguments
@@ -107,6 +109,7 @@ pub fn read_bed<T: Clone + Debug>(
     Some(intervals)
 }
 
+#[allow(unused)]
 pub fn read_cfg(path: Option<impl AsRef<Path>>, preset: Option<&str>) -> eyre::Result<Config> {
     match (path, preset.map(Preset::from_str)) {
         (None, None) => Ok(Config::default()),

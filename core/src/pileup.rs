@@ -54,6 +54,7 @@ pub enum AlignmentFile {
 }
 
 impl AlignmentFile {
+    #[allow(unused)]
     /// Get aligned intervals from header in windows.
     pub fn aligned_intervals_windows(
         &mut self,
@@ -278,6 +279,8 @@ impl AlignmentFile {
             ))
         }
     }
+
+    #[allow(unused)]
     pub fn header(&mut self) -> eyre::Result<Header> {
         match self {
             AlignmentFile::Cram(indexed_reader) => Ok(indexed_reader.read_header()?),
