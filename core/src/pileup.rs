@@ -1,3 +1,4 @@
+use cg2cs::{cs_str_to_cs_ops, CSKind};
 use coitrees::{GenericInterval, Interval};
 use eyre::{bail, Context};
 use itertools::Itertools;
@@ -24,49 +25,7 @@ use std::{ffi::OsStr, fmt::Debug, fs::File, path::Path};
 
 use crate::config::Config;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-enum DiffToken {
-    Identical,
-    IdenticalLong,
-    Substitution,
-    Insertion,
-    Deletion,
-    Intron,
-    Base,
-    Number,
-    Invalid(u8),
-}
-
-impl From<u8> for DiffToken {
-    fn from(value: u8) -> Self {
-        match value {
-            b'=' => DiffToken::IdenticalLong,
-            b':' => DiffToken::Identical,
-            b'*' => DiffToken::Substitution,
-            b'+' => DiffToken::Insertion,
-            b'-' => DiffToken::Deletion,
-            b'~' => DiffToken::Intron,
-            b'0'..=b'9' => DiffToken::Number,
-            b'a' | b't' | b'g' | b'c' | b'n' | b'A' | b'T' | b'G' | b'C' | b'N' => DiffToken::Base,
-            _ => DiffToken::Invalid(value),
-        }
-    }
-}
-
-impl TryFrom<DiffToken> for Kind {
-    type Error = eyre::Report;
-
-    fn try_from(value: DiffToken) -> Result<Self, Self::Error> {
-        Ok(match value {
-            DiffToken::Identical => Kind::SequenceMatch,
-            DiffToken::Substitution => Kind::SequenceMismatch,
-            DiffToken::Insertion => Kind::Insertion,
-            DiffToken::Deletion => Kind::Deletion,
-            _ => bail!("Cannot convert {value:?} to Kind."),
-        })
-    }
-}
-
+/// Pileup MAPQ summary function.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PileupMAPQFn {
     Median,
@@ -74,28 +33,40 @@ pub enum PileupMAPQFn {
     Mean,
 }
 
+/// Collected pileup metrics.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PileupInfo {
+    /// Number of reads covering position. Indels, softclip, and ref skip (N) do not support assembly and are not counted.
     pub n_cov: u32,
+    /// Number of mismatches
     pub n_mismatch: u32,
+    /// Number of insertions
     pub n_insertion: u32,
+    /// Number of deletions
     pub n_deletion: u32,
+    /// Number of softclipped bases
     pub n_softclip: u32,
+    /// MAPQ of all reads at position
     pub mapq: Vec<u8>,
 }
 
+/// Summary of pileup
 #[derive(Debug, PartialEq, Eq)]
 pub struct PileupSummary {
+    /// Interval for pileup region
     pub region: Region,
+    /// All pileup information
     pub pileups: Vec<PileupInfo>,
 }
 
+/// Alignments
 pub enum AlignmentFile {
     Cram(cram::io::IndexedReader<File>),
     Bam(bam::io::IndexedReader<bgzf::Reader<File>>),
 }
 
 impl AlignmentFile {
+    #[allow(unused)]
     /// Get aligned intervals from header in windows.
     pub fn aligned_intervals_windows(
         &mut self,
@@ -131,6 +102,7 @@ impl AlignmentFile {
 }
 
 impl PileupInfo {
+    /// Median MAPQ of pileup
     pub fn median_mapq(&self) -> Option<u8> {
         let length = self.mapq.len();
         let midpt = length / 2;
@@ -141,6 +113,8 @@ impl PileupInfo {
             self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
         }
     }
+
+    /// Mean MAPQ of pileup
     pub fn mean_mapq(&self) -> eyre::Result<u8> {
         let Some(length) = TryInto::<u32>::try_into(self.mapq.len())
             .ok()
@@ -158,8 +132,9 @@ impl PileupInfo {
     }
 }
 
-// https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignedsegment.pyx#L2009
-pub fn get_aligned_pairs(
+/// Convert cigar string to operations.
+/// * Adapted from <https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignedsegment.pyx#L2009>
+pub(crate) fn get_aligned_pairs(
     cg: impl Iterator<Item = (Kind, usize)>,
     pos: usize,
     min_ins_size: usize,
@@ -256,71 +231,40 @@ macro_rules! pileup {
     };
 }
 
-fn cs_to_cigar(cs: &[u8], cg: &[Op]) -> eyre::Result<Vec<Op>> {
-    // TODO: Use cs_to_cigar lib.
-    // Check if last and first op is softclip
-    let mut new_ops = if let Some(first_op) = cg.first().filter(|op| op.kind() == Kind::SoftClip) {
-        vec![*first_op]
-    } else {
-        vec![]
-    };
-    let mut curr_op: Option<DiffToken> = None;
-    for (tk, elems) in &cs.iter().chunk_by(|c| Into::<DiffToken>::into(**c)) {
-        match (curr_op.as_ref(), &tk) {
-            (None, DiffToken::Identical)
-            | (None, DiffToken::IdenticalLong)
-            | (None, DiffToken::Substitution)
-            | (None, DiffToken::Insertion)
-            | (None, DiffToken::Deletion)
-            | (None, DiffToken::Intron) => curr_op = Some(tk.clone()),
-            (None, _) => bail!("Invalid starting token: {tk:?}"),
-            (Some(DiffToken::Substitution), DiffToken::Base) => {
-                new_ops.push(Op::new(Kind::SequenceMismatch, 1));
-                curr_op.take();
-            }
-            (Some(DiffToken::IdenticalLong), DiffToken::Base) => {
-                new_ops.push(Op::new(Kind::SequenceMatch, elems.count()));
-                curr_op.take();
-            }
-            (Some(op), DiffToken::Base) => {
-                let op_kind: Kind = op.clone().try_into()?;
-                new_ops.push(Op::new(op_kind, elems.count()));
-                curr_op.take();
-            }
-            (Some(op), DiffToken::Number) => {
-                let op_kind: Kind = op.clone().try_into()?;
-                new_ops.push(Op::new(
-                    op_kind,
-                    elems.into_iter().map(|e| char::from(*e)).join("").parse()?,
-                ));
-                curr_op.take();
-            }
-            (Some(op), DiffToken::Identical)
-            | (Some(op), DiffToken::IdenticalLong)
-            | (Some(op), DiffToken::Substitution)
-            | (Some(op), DiffToken::Insertion)
-            | (Some(op), DiffToken::Deletion)
-            | (Some(op), DiffToken::Intron)
-            | (Some(op), DiffToken::Invalid(_)) => bail!(
-                "Invalid matching token: {op:?}: {}",
-                elems.into_iter().map(|e| *e as char).join("")
-            ),
-        }
-    }
-
-    if let Some(last_op) = cg.last().filter(|op| op.kind() == Kind::SoftClip) {
-        new_ops.push(*last_op);
-    }
-    Ok(new_ops)
-}
-
 fn update_cigar(cg: &[Op], tags: &Data) -> eyre::Result<Option<Vec<Op>>> {
     // Is not correct cigar format. Try to convert if cs provided.
     if cg.iter().any(|op| op.kind() == Kind::Match) {
         // :10*at:5-ac:6
         if let Some(Value::String(cs)) = tags.get(&Tag::new(b'c', b's')) {
+            // Convert cs str to cigar operations.
+            let new_ops = cs_str_to_cs_ops(str::from_utf8(cs.as_ref())?, false)
+                .map_err(|err| eyre::eyre!(err.to_string()))?
+                .into_iter()
+                .map(|csop| {
+                    let cigar_kind = match csop.kind() {
+                        CSKind::Match => Kind::SequenceMatch,
+                        CSKind::Mismatch => Kind::SequenceMismatch,
+                        CSKind::Insertion => Kind::Insertion,
+                        CSKind::Deletion => Kind::Deletion,
+                        CSKind::Intron => {
+                            unimplemented!("CSOp to CigarOp for Intron not implemented.")
+                        }
+                    };
+                    Op::new(cigar_kind, csop.length())
+                });
+
             // Check if last and first op is softclip
-            let new_ops = cs_to_cigar(cs.as_ref(), cg)?;
+            let mut new_ops: Vec<Op> =
+                if let Some(first_op) = cg.first().filter(|op| op.kind() == Kind::SoftClip) {
+                    std::iter::once(*first_op).chain(new_ops).collect()
+                } else {
+                    new_ops.collect()
+                };
+
+            if let Some(last_op) = cg.last().filter(|op| op.kind() == Kind::SoftClip) {
+                new_ops.push(*last_op);
+            }
+
             Ok(Some(new_ops))
         } else {
             bail!("Invalid cigar string. Must be extended cigar (=/X) or include cs tag.")
@@ -331,6 +275,7 @@ fn update_cigar(cg: &[Op], tags: &Data) -> eyre::Result<Option<Vec<Op>>> {
 }
 
 impl AlignmentFile {
+    /// Create new alignment file.
     pub fn new(aln: impl AsRef<Path> + Debug) -> eyre::Result<Self> {
         if aln
             .as_ref()
@@ -351,6 +296,9 @@ impl AlignmentFile {
             ))
         }
     }
+
+    #[allow(unused)]
+    /// Read alignment header.
     pub fn header(&mut self) -> eyre::Result<Header> {
         match self {
             AlignmentFile::Cram(indexed_reader) => Ok(indexed_reader.read_header()?),
@@ -358,6 +306,7 @@ impl AlignmentFile {
         }
     }
 
+    /// Generate pileup.
     pub fn pileup(
         &mut self,
         itv: &Interval<String>,

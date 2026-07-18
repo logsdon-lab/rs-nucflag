@@ -6,6 +6,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use suffix::SuffixTable;
 
+/// A repeat sequence type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum Repeat {
     /// Scaffold sequence with `N` characters.

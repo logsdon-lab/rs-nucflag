@@ -1,5 +1,6 @@
 use coitrees::{COITree, Interval, IntervalTree};
 use polars::{io::SerReader, prelude::*};
+use pretty_assertions::assert_eq;
 use rs_nucflag::{
     io::{read_cfg, write_tsv},
     nucflag,

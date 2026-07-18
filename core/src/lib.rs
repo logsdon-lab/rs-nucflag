@@ -1,15 +1,31 @@
-pub mod binning;
+#![doc=include_str!("../../README.md")]
+
+pub(crate) mod binning;
+pub(crate) mod intervals;
+pub(crate) mod misassembly;
+pub(crate) mod nucflag;
+pub(crate) mod peak;
+pub(crate) mod postprocess;
+pub(crate) mod preset;
+
+// Need to be public for py_nucflag
+#[doc(hidden)]
 pub mod classify;
+#[doc(hidden)]
 pub mod config;
-pub mod intervals;
+#[doc(hidden)]
 pub mod io;
-pub mod misassembly;
-pub mod peak;
+#[doc(hidden)]
 pub mod pileup;
-pub mod postprocess;
-pub mod preset;
+#[doc(hidden)]
 pub mod repeats;
 
-mod nucflag;
-
+pub use classify::NucFlagResult;
+#[doc(inline)]
+pub use config::*;
+#[doc(inline)]
+pub use misassembly::*;
 pub use nucflag::nucflag;
+#[doc(inline)]
+pub use preset::*;
+pub use repeats::Repeat;

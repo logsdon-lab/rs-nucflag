@@ -54,6 +54,7 @@ fn get_itree_above_median(
     Ok(COITree::new(&itvs_above_median_cov))
 }
 
+/// Result of NucFlag run.
 #[derive(Debug)]
 pub struct NucFlagResult {
     /// All called regions.

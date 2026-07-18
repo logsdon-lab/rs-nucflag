@@ -4,18 +4,30 @@ use serde::{Deserialize, Serialize};
 
 use crate::repeats::Repeat;
 
+/// Types of misassemblies or errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum MisassemblyType {
+    /// Heterozygous site or mismapping.
     HetOrMismap,
+    /// Low quality region with high proportion of reads disagreeing with assembly.
     LowQuality,
+    /// Insertion in reads not supported by assembly.
     Insertion,
+    /// Deletion in reads not supported by assembly.
     Deletion,
+    /// Mismatched base compared to assembly.
     Mismatch,
+    /// High proportion of softclipped bases.
     SoftClip,
+    /// Potential collapse in sequence. Based on intersection with indel/mismatch signal. Might also indicate a severe misjoin or scaffolding issue.
     Collapse,
+    /// Potential misjoin in assembly with zero supporting reads.
     Misjoin,
+    /// Potential false duplication. Based on low MAPQ and half the expected coverage. Might indicate a duplicate contig in the assembly or a local false duplication.
     FalseDup,
+    /// [`Repeat`] associated errors. Typically sequencing technology issues.
     RepeatError(Repeat),
+    /// Correct region.
     Null,
 }
 
