@@ -5,6 +5,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::{misassembly::MisassemblyType, pileup::PileupMAPQFn, repeats::Repeat};
 
+/// NucFlag's configuration split by category.
+/// * Optional groups can be commented out in the TOML config.
+///
+/// ```toml
+/// [group_by_ani]
+/// window_size = 5_000
+/// min_grp_size = 100_000
+/// min_ident = 80.0
+///
+/// # [repeat]
+/// # check_types = ["Misjoin", "Insertion", "Deletion", "FalseDup"]
+/// # ratio_repeat = 0.5
+/// # bp_extend = 5
+/// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     /// General config.
@@ -77,6 +91,7 @@ impl Config {
     }
 }
 
+/// Configuration for minimum size of calls.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MinimumSizeConfig {
     pub null: usize,
@@ -158,6 +173,7 @@ impl Default for MinimumSizeConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+/// Config for self-identical region detection with [ModDotPlot](https://github.com/marbl/ModDotPlot) ANI. Requires providing fasta.
 pub struct GroupByANIConfig {
     /// Size of window to calculate self-identity.
     pub window_size: usize,

@@ -1,15 +1,21 @@
-pub mod binning;
-pub mod classify;
-pub mod config;
-pub mod intervals;
-pub mod io;
-pub mod misassembly;
-pub mod peak;
-pub mod pileup;
-pub mod postprocess;
-pub mod preset;
-pub mod repeats;
+#![doc=include_str!("../../README.md")]
 
-mod nucflag;
+pub(crate) mod binning;
+pub(crate) mod classify;
+pub(crate) mod config;
+pub(crate) mod intervals;
+pub(crate) mod io;
+pub(crate) mod misassembly;
+pub(crate) mod nucflag;
+pub(crate) mod peak;
+pub(crate) mod pileup;
+pub(crate) mod postprocess;
+pub(crate) mod preset;
+pub(crate) mod repeats;
 
+pub use classify::NucFlagResult;
+pub use config::*;
+pub use misassembly::*;
 pub use nucflag::nucflag;
+pub use preset::*;
+pub use repeats::Repeat;

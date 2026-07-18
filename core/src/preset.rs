@@ -7,7 +7,7 @@ use crate::config::{
     Config, CoverageConfig, GeneralConfig, IndelConfig, MinimumSizeConfig, MismatchConfig,
 };
 
-/// Sequencing data preset.
+/// Sequencing data preset. See [`From<Preset>`] for [`Config`] impl for exact parameters.
 #[derive(Deserialize, Debug, Default, Clone)]
 pub enum Preset {
     /// PacBio Hifi. Default option. Accuracy ~99.9%.
