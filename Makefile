@@ -1,10 +1,17 @@
-.PHONY: build_rs test_rs test_rs_remake_images test_py build_py build_py_stubs
+.PHONY: build_rs test_rs test_rs_remake_images test_py build_py build_py_stubs docs_rs publish_rs
 
 test_rs:
 	cargo test -p rs-nucflag --release
 
 build_rs:
 	cargo build --release --manifest-path core/Cargo.toml
+
+docs_rs:
+	cargo doc --manifest-path core/Cargo.toml --no-deps --open
+
+# Publish to also build docs.
+publish_rs:
+	# cargo publish -n -m core/Cargo.toml
 
 test_rs_remake_images:
 	eval $$(cd core/test && rm -f results/*.done && snakemake -p -s regenerate_plots.smk -c 12 > /dev/null);

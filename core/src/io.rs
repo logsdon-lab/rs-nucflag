@@ -19,7 +19,7 @@ use polars::prelude::*;
 use crate::{config::Config, preset::Preset};
 
 #[allow(unused)]
-/// Write TSV file to file or stdout.
+/// Write TSV file to file or stdout. For debugging.
 pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Result<()> {
     let mut file: Box<dyn Write> = if let Some(path) = path {
         Box::new(BufWriter::new(File::create(path)?))
@@ -34,6 +34,7 @@ pub fn write_tsv(df: &mut DataFrame, path: Option<impl AsRef<Path>>) -> eyre::Re
 }
 
 #[allow(unused)]
+/// Write itvs to file or stdout. For debugging.
 pub fn write_itvs<T: Debug + Clone>(
     itvs: impl Iterator<Item = Interval<T>>,
     path: Option<impl AsRef<Path>>,
@@ -131,17 +132,20 @@ pub fn read_cfg(path: Option<impl AsRef<Path>>, preset: Option<&str>) -> eyre::R
     }
 }
 
+/// Fasta reader for gzipped/non-gzipped files.
 pub enum FastaReader {
     Bgzip(fasta::io::Reader<IndexedReader<File>>),
     Standard(fasta::io::Reader<BufReader<File>>),
 }
 
+/// Fasta handle.
 pub struct FastaHandle {
     pub reader: FastaReader,
     pub fai: fasta::fai::Index,
 }
 
 impl FastaHandle {
+    /// Create new handle.
     pub fn new(infile: impl AsRef<Path>) -> eyre::Result<Self> {
         let (fai, gzi) = Self::get_faidx(&infile)?;
         let fh = Self::read_fa(&infile, gzi.as_ref())?;
@@ -184,6 +188,7 @@ impl FastaHandle {
         }
     }
 
+    /// Fetch coordinates. noodles use 1-based coordinates.
     pub fn fetch(
         &mut self,
         ctg_name: &str,
