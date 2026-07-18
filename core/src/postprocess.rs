@@ -62,7 +62,7 @@ fn ignore_boundary_misassemblies(
             itv.metadata.cov < (bin.median - bin.stdev).clamp(0.0, f32::MAX) as u32
         }) {
             let og_mdata = &itv.metadata;
-            log::debug!("Filtered out {:?}: {ctg}:{}-{} at contig start with coverage ({}) below bin median {:?}", og_mdata.typ, itv.first, itv.last, og_mdata.cov, &bin_stats[&og_mdata.bin]);
+            log::debug!("Filtered out {:?}: {ctg}:{}-{} at contig start with coverage ({}) below bin median {:?}", og_mdata.typ, itv.first, itv.last, og_mdata.cov, bin_stats[&og_mdata.bin]);
             *itv = Interval::new(
                 itv.first,
                 itv.last,
@@ -94,7 +94,7 @@ fn ignore_boundary_misassemblies(
                 itv.first,
                 itv.last,
                 og_mdata.cov,
-                &bin_stats[&og_mdata.bin]
+                bin_stats[&og_mdata.bin]
             );
             *itv = Interval::new(
                 itv.first,

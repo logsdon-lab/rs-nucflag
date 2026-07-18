@@ -20,22 +20,26 @@ cargo add --git https://github.com/koisland/rs-nucflag.git rs-nucflag
 ## Project Overview
 Three directories:
 1. `core`
-    * Rust `nucflag` library.
+    * Rust `nucflag` library as `rs-nucflag` crate.
 2. `py`
     * Python bindings for `core` as `py_nucflag` library.
 3. `examples`
     * Example command-line program using `nucflag` library.
 
 ## Build
-```bash
-make venv && make py_nucflag
-```
+Ensure [`pixi`](https://pixi.prefix.dev/latest/#getting-started) is installed for building python bindings.
 
 ```bash
-make rs_nucflag
+# Build py_nucflag.
+make build_py
+# Build rs-nucflag
+make build_rs
 ```
 
 ## Tests
 ```bash
-make test
+# Test py_nucflag
+make test_py
+# Test rs-nucflag
+make test_rs
 ```
