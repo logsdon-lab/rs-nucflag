@@ -1,0 +1,59 @@
+[general]
+log_level = "INFO"
+bp_merge = 5000
+bp_wg_window = 10000000
+bp_min_aln_length = 1
+ignore_boundaries = false
+
+[cov]
+n_zscores_high = 3.5
+n_zscores_low = 2.0
+ratio_collapse = 2.0
+ratio_false_dup = 0.5
+
+[mismatch]
+n_zscores_high = 3.5
+ratio_low_quality = 0.5
+ratio_het = 0.2
+
+[indel]
+n_zscores_high = 2.0
+ratio_insertion = 0.5
+ratio_deletion = 0.5
+min_ins_size = 2
+min_del_size = 2
+
+[softclip]
+n_zscores_high = 3.5
+ratio_softclip = 0.5
+
+[mapq]
+n_zscores_low = 1.0
+mapq_agg_fn = "Mean"
+
+[repeat]
+check_types = ["FalseDup", "Misjoin", "Insertion", "Deletion"]
+ratio_repeat = 0.5
+bp_extend = 5
+
+[group_by_ani]
+window_size = 5000
+min_grp_size = 100000
+min_ident = 80.0
+
+[minimum_size]
+null = 1
+collapse = 500
+mismatch = 1
+misjoin = 1
+het_or_mismap = 1
+low_quality = 1
+false_dup = 500
+softclip = 1
+insertion = 1
+deletion = 1
+homopolymer = 1
+dinucleotide = 1
+simple_repeat = 1
+other_repeat = 1
+scaffold = 1

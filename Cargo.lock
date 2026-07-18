@@ -379,8 +379,9 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 [[package]]
 name = "cg2cs"
 version = "0.1.0"
-source = "git+https://github.com/koisland/cg2cs?rev=196ca392463741b0cc9190e19b6a196ecc9c4885#196ca392463741b0cc9190e19b6a196ecc9c4885"
+source = "git+https://github.com/koisland/cg2cs?rev=a483fb3c70518d560622fd9b850d2cd9d400d0ed#a483fb3c70518d560622fd9b850d2cd9d400d0ed"
 dependencies = [
+ "digits_iterator",
  "itertools",
 ]
 
@@ -643,6 +644,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "diff"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -651,6 +658,12 @@ dependencies = [
  "block-buffer",
  "crypto-common",
 ]
+
+[[package]]
+name = "digits_iterator"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af83450b771231745d43edf36dc9b7813ab83be5e8cbea344ccced1a09dfebcd"
 
 [[package]]
 name = "displaydoc"
@@ -2504,6 +2517,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pretty_assertions"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ae130e2f271fbc2ac3a40fb1d07180839cdbbe443c7a27e1e3c13c5cac0116d"
+dependencies = [
+ "diff",
+ "yansi",
+]
+
+[[package]]
 name = "prettyplease"
 version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2956,6 +2979,7 @@ dependencies = [
  "noodles 0.96.0",
  "ordered-float",
  "polars",
+ "pretty_assertions",
  "rayon",
  "rs-moddotplot",
  "serde",
@@ -4398,6 +4422,12 @@ checksum = "388c44dc09d76f1536602ead6d325eb532f5c122f17782bd57fb47baeeb767e2"
 dependencies = [
  "lzma-sys",
 ]
+
+[[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yoke"

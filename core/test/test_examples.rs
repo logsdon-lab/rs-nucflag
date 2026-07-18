@@ -4,6 +4,7 @@ use rs_nucflag::{
     io::{read_cfg, write_tsv},
     nucflag,
 };
+use pretty_assertions::assert_eq;
 
 const GENERATE_BEDS: bool = false;
 

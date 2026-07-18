@@ -38,6 +38,9 @@ jobs:
         with:
           command: test
           args: -p rs-nucflag --release
+      # Test python bindings
+      - uses: prefix-dev/setup-pixi@v0.10.0
+      - run: pixi run -m py/ test
 
   fmt:
     name: Rustfmt
