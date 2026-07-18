@@ -1,6 +1,6 @@
 [package]
 name = "rs-nucflag"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Keisuke K. Oshima <koisland@pm.me>"]
 description = "Library to call misassemblies in genome assemblies from long-read alignments."

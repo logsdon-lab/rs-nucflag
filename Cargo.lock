@@ -2557,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "py-nucflag"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "coitrees",
  "itertools",
@@ -2968,7 +2968,7 @@ dependencies = [
 
 [[package]]
 name = "rs-nucflag"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cg2cs",
  "clap",
