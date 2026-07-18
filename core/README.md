@@ -53,12 +53,12 @@ Each `test` subdirectory contains:
 Remake NucFreq plots. Requires `snakemake` and `nucflag>=1.0`
 ```bash
 which snakemake nucflag
-make test_remake_images
+make test_rs_remake_images
 ```
 
 Run all tests.
 ```bash
-make test
+make test_rs
 ```
 
 Build library.

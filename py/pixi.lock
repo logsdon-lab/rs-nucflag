@@ -73,6 +73,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.47.0-pyhd8ed1ab_0.conda
       - pypi: ./
+      - pypi: https://files.pythonhosted.org/packages/97/fb/92a4a232d31c00276085d03e6f96f28b940cc802cf69b07b8d892def293d/pyo3_stubgen-0.3.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/fb/e2/79c688af8b210d232694e31e59da9f6ec747bae31c3f5946e4e9b98860d5/click-8.4.2-py3-none-any.whl
       osx-64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.6.17-hbd8a1cb_0.conda
@@ -110,6 +112,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/readline-8.3-h68b038d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/tk-8.6.13-hb794df6_3.conda
       - pypi: ./
+      - pypi: https://files.pythonhosted.org/packages/97/fb/92a4a232d31c00276085d03e6f96f28b940cc802cf69b07b8d892def293d/pyo3_stubgen-0.3.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/fb/e2/79c688af8b210d232694e31e59da9f6ec747bae31c3f5946e4e9b98860d5/click-8.4.2-py3-none-any.whl
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.6.17-hbd8a1cb_0.conda
@@ -146,6 +150,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/readline-8.3-h46df422_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tk-8.6.13-hd3d0363_3.conda
       - pypi: ./
+      - pypi: https://files.pythonhosted.org/packages/97/fb/92a4a232d31c00276085d03e6f96f28b940cc802cf69b07b8d892def293d/pyo3_stubgen-0.3.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/fb/e2/79c688af8b210d232694e31e59da9f6ec747bae31c3f5946e4e9b98860d5/click-8.4.2-py3-none-any.whl
       win-64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.6.17-h4c7d964_0.conda
@@ -183,6 +189,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/vc14_runtime-14.51.36231-h1b9f54f_39.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36231-h1b9f54f_39.conda
       - pypi: ./
+      - pypi: https://files.pythonhosted.org/packages/97/fb/92a4a232d31c00276085d03e6f96f28b940cc802cf69b07b8d892def293d/pyo3_stubgen-0.3.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/fb/e2/79c688af8b210d232694e31e59da9f6ec747bae31c3f5946e4e9b98860d5/click-8.4.2-py3-none-any.whl
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   build_number: 20
@@ -1491,3 +1499,27 @@ packages:
   requires_dist:
   - polars
   requires_python: '>=3.8'
+- pypi: https://files.pythonhosted.org/packages/97/fb/92a4a232d31c00276085d03e6f96f28b940cc802cf69b07b8d892def293d/pyo3_stubgen-0.3.0-py3-none-any.whl
+  name: pyo3-stubgen
+  version: 0.3.0
+  sha256: a05c32ddf1981be043fa5015f24d625b4eb631c27769e0db475acf4b28e5acc3
+  requires_dist:
+  - click
+  - pyo3-stubgen[test] ; extra == 'cov'
+  - pytest-cov ; extra == 'cov'
+  - pyo3-stubgen[cov,doc,lint,test] ; extra == 'dev'
+  - black ; extra == 'doc'
+  - mkdocs ; extra == 'doc'
+  - mkdocstrings[python] ; extra == 'doc'
+  - mkdocs-material ; extra == 'doc'
+  - ruff ; extra == 'lint'
+  - pytest ; extra == 'test'
+  - pytest-doctest-mkdocstrings ; extra == 'test'
+  requires_python: '>=3.8'
+- pypi: https://files.pythonhosted.org/packages/fb/e2/79c688af8b210d232694e31e59da9f6ec747bae31c3f5946e4e9b98860d5/click-8.4.2-py3-none-any.whl
+  name: click
+  version: 8.4.2
+  sha256: e6f9f66136c816745b9d65817da91d61d957fb16e02e4dcd0552553c5a197b76
+  requires_dist:
+  - colorama ; sys_platform == 'win32'
+  requires_python: '>=3.10'

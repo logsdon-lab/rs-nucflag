@@ -32,7 +32,9 @@ polars = "*"
 
 [tool.pixi.pypi-dependencies]
 py_nucflag = { path = ".", editable = true }
+pyo3-stubgen = "*"
 
 [tool.pixi.tasks]
 build = "maturin develop --release"
 test = { cmd = "pytest tests/ -v", depends-on = ["build"] }
+build_stubs = "pyo3-stubgen py_nucflag"

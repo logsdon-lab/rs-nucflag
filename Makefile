@@ -1,35 +1,21 @@
-.PHONY: build test venv build_py build_rs install_py
+.PHONY: build_rs test_rs test_rs_remake_images test_py build_py build_py_stubs
 
-BIN=venv/bin/
-
-
-test:
+test_rs:
 	cargo test -p rs-nucflag --release
 
+build_rs:
+	cargo build --release --manifest-path core/Cargo.toml
 
-test_remake_images:
+test_rs_remake_images:
 	eval $$(cd core/test && rm -f results/*.done && snakemake -p -s regenerate_plots.smk -c 12 > /dev/null);
 
-
-venv:
-	python -m venv venv
-	$(BIN)pip install maturin pyo3-stubgen
-
+test_py:
+	pixi run -m py/ test
 
 build_py:
-	$(BIN)maturin build --release -m py/Cargo.toml
-
+	pixi run -m py/ build
 
 # This will delete the original! Doesn't include classes or types.
 # TODO: Merge files. https://stackoverflow.com/a/9123512
 build_py_stubs:
-	$(MAKE) install_py
-	$(BIN)pyo3-stubgen py_nucflag py
-
-
-install_py:
-	$(BIN)pip install --force-reinstall $(shell find target/wheels -name "*.whl" | sort -r | head -1)
-
-
-build_rs:
-	cargo build --release --manifest-path core/Cargo.toml
+	pixi run -m py/ test
