@@ -25,6 +25,7 @@ use std::{ffi::OsStr, fmt::Debug, fs::File, path::Path};
 
 use crate::config::Config;
 
+/// Pileup MAPQ summary function.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PileupMAPQFn {
     Median,
@@ -32,22 +33,33 @@ pub enum PileupMAPQFn {
     Mean,
 }
 
+/// Collected pileup metrics.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PileupInfo {
+    /// Number of reads covering position. Indels, softclip, and ref skip (N) do not support assembly and are not counted.
     pub n_cov: u32,
+    /// Number of mismatches
     pub n_mismatch: u32,
+    /// Number of insertions
     pub n_insertion: u32,
+    /// Number of deletions
     pub n_deletion: u32,
+    /// Number of softclipped bases
     pub n_softclip: u32,
+    /// MAPQ of all reads at position
     pub mapq: Vec<u8>,
 }
 
+/// Summary of pileup
 #[derive(Debug, PartialEq, Eq)]
 pub struct PileupSummary {
+    /// Interval for pileup region
     pub region: Region,
+    /// All pileup information
     pub pileups: Vec<PileupInfo>,
 }
 
+/// Alignments
 pub enum AlignmentFile {
     Cram(cram::io::IndexedReader<File>),
     Bam(bam::io::IndexedReader<bgzf::Reader<File>>),
@@ -90,6 +102,7 @@ impl AlignmentFile {
 }
 
 impl PileupInfo {
+    /// Median MAPQ of pileup
     pub fn median_mapq(&self) -> Option<u8> {
         let length = self.mapq.len();
         let midpt = length / 2;
@@ -100,6 +113,8 @@ impl PileupInfo {
             self.mapq.iter().sorted().nth(self.mapq.len() / 2).cloned()
         }
     }
+
+    /// Mean MAPQ of pileup
     pub fn mean_mapq(&self) -> eyre::Result<u8> {
         let Some(length) = TryInto::<u32>::try_into(self.mapq.len())
             .ok()
@@ -117,8 +132,9 @@ impl PileupInfo {
     }
 }
 
-// https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignedsegment.pyx#L2009
-pub fn get_aligned_pairs(
+/// Convert cigar string to operations.
+/// * Adapted from <https://github.com/pysam-developers/pysam/blob/3e3c8b0b5ac066d692e5c720a85d293efc825200/pysam/libcalignedsegment.pyx#L2009>
+pub(crate) fn get_aligned_pairs(
     cg: impl Iterator<Item = (Kind, usize)>,
     pos: usize,
     min_ins_size: usize,
@@ -259,6 +275,7 @@ fn update_cigar(cg: &[Op], tags: &Data) -> eyre::Result<Option<Vec<Op>>> {
 }
 
 impl AlignmentFile {
+    /// Create new alignment file.
     pub fn new(aln: impl AsRef<Path> + Debug) -> eyre::Result<Self> {
         if aln
             .as_ref()
@@ -281,6 +298,7 @@ impl AlignmentFile {
     }
 
     #[allow(unused)]
+    /// Read alignment header.
     pub fn header(&mut self) -> eyre::Result<Header> {
         match self {
             AlignmentFile::Cram(indexed_reader) => Ok(indexed_reader.read_header()?),
@@ -288,6 +306,7 @@ impl AlignmentFile {
         }
     }
 
+    /// Generate pileup.
     pub fn pileup(
         &mut self,
         itv: &Interval<String>,

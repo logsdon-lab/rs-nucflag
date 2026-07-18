@@ -5,7 +5,6 @@ pub(crate) mod intervals;
 pub(crate) mod misassembly;
 pub(crate) mod nucflag;
 pub(crate) mod peak;
-pub(crate) mod pileup;
 pub(crate) mod postprocess;
 pub(crate) mod preset;
 pub(crate) mod repeats;
@@ -17,6 +16,8 @@ pub mod classify;
 pub mod config;
 #[doc(hidden)]
 pub mod io;
+#[doc(hidden)]
+pub mod pileup;
 
 pub use classify::NucFlagResult;
 #[doc(inline)]
