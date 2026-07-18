@@ -152,18 +152,18 @@ fn nucflag_grp(
 /// Single region
 /// ```no_run
 /// use coitrees::Interval;
-/// use rs_nucflag::{nucflag, NucFlagResults, Config};
+/// use rs_nucflag::{nucflag, NucFlagResult, Config};
 ///
 /// let bam = "test.bam";
 /// let fasta = "test.fa.gz";
 /// let itv = Interval::new(1, 100, String::from("chr1"));
-/// let res = nucflag(bam, fasta, &itv, None, Config::default()).unwrap()
+/// let res = nucflag(bam, Some(fasta), &itv, None, Config::default()).unwrap();
 /// ```
 ///
 /// Multiple regions
 /// ```no_run
 /// use coitrees::Interval;
-/// use rs_nucflag::{nucflag, NucFlagResults, Config};
+/// use rs_nucflag::{nucflag, NucFlagResult, Config};
 ///
 /// let bam = "test.bam";
 /// let fasta = "test.fa.gz";
@@ -173,10 +173,10 @@ fn nucflag_grp(
 /// ];
 /// // Unless you need the pileup, consider dropping them.
 /// let results: Vec<NucFlagResult> = ctg_itvs
-///     .into_par_iter()
+///     .into_iter()
 ///     .map(|itv| {
 ///         // Open the BAM file in read-only per thread.
-///         nucflag(bam, fasta, &itv, None, Config::default()).unwrap()
+///         nucflag(bam, Some(fasta), &itv, None, Config::default()).unwrap()
 ///     })
 ///     .collect();
 /// ```

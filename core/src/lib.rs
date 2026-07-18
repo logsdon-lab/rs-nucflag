@@ -7,7 +7,6 @@ pub(crate) mod nucflag;
 pub(crate) mod peak;
 pub(crate) mod postprocess;
 pub(crate) mod preset;
-pub(crate) mod repeats;
 
 // Need to be public for py_nucflag
 #[doc(hidden)]
@@ -18,6 +17,8 @@ pub mod config;
 pub mod io;
 #[doc(hidden)]
 pub mod pileup;
+#[doc(hidden)]
+pub mod repeats;
 
 pub use classify::NucFlagResult;
 #[doc(inline)]
