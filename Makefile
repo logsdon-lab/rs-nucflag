@@ -11,7 +11,7 @@ docs_rs:
 
 # Publish to also build docs.
 publish_rs:
-	# cargo publish -n -m core/Cargo.toml
+	cargo publish -n -p rs-nucflag
 
 test_rs_remake_images:
 	eval $$(cd core/test && rm -f results/*.done && snakemake -p -s regenerate_plots.smk -c 12 > /dev/null);

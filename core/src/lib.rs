@@ -1,4 +1,4 @@
-#![doc=include_str!("../../README.md")]
+//! Library to detect errors in genome assemblies. Used as backend for [NucFlag](https://github.com/logsdon-lab/NucFlag).
 
 pub(crate) mod binning;
 pub(crate) mod intervals;

@@ -24,7 +24,7 @@ Three directories:
 2. `py`
     * Python bindings for `core` as `py_nucflag` library.
 3. `examples`
-    * Example command-line program using `nucflag` library.
+    * Example command-line programs using `rs-nucflag` and `py_nucflag` library.
 
 ## Build
 Ensure [`pixi`](https://pixi.prefix.dev/latest/#getting-started) is installed for building python bindings.
