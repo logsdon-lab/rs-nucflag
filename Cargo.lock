@@ -379,7 +379,8 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 [[package]]
 name = "cg2cs"
 version = "0.1.0"
-source = "git+https://github.com/koisland/cg2cs?rev=a483fb3c70518d560622fd9b850d2cd9d400d0ed#a483fb3c70518d560622fd9b850d2cd9d400d0ed"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec95dbdaedcfa46e8a8942be8ca4b59856ca54af802cecf1024e10c0ede5ae7e"
 dependencies = [
  "digits_iterator",
  "itertools",
@@ -2557,7 +2558,7 @@ dependencies = [
 
 [[package]]
 name = "py-nucflag"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "coitrees",
  "itertools",
@@ -2958,7 +2959,8 @@ dependencies = [
 [[package]]
 name = "rs-moddotplot"
 version = "0.1.0"
-source = "git+https://github.com/logsdon-lab/rs-moddotplot.git?rev=66841c8d5f228631a16fcaa5841bfd468067a4c6#66841c8d5f228631a16fcaa5841bfd468067a4c6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34947b8923ca0f391eff151848ef555ea335055ef73dde580e87c9cfdcd0c4cd"
 dependencies = [
  "indexmap",
  "murmur3",
