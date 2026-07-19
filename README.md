@@ -11,7 +11,7 @@ pip install py-nucflag
 
 To install the `rs_nucflag` library.
 ```bash
-cargo add --git https://github.com/koisland/rs-nucflag.git rs-nucflag
+cargo add rs-nucflag
 ```
 
 > [!NOTE]
@@ -22,9 +22,9 @@ Three directories:
 1. `core`
     * Rust `nucflag` library as `rs-nucflag` crate.
 2. `py`
-    * Python bindings for `core` as `py_nucflag` library.
+    * Python bindings for `core` as `py-nucflag` library.
 3. `examples`
-    * Example command-line programs using `rs-nucflag` and `py_nucflag` library.
+    * Example command-line programs using `rs-nucflag` and `py-nucflag` library.
 
 ## Build
 Ensure [`pixi`](https://pixi.prefix.dev/latest/#getting-started) is installed for building python bindings.
