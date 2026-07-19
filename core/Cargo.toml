@@ -7,6 +7,8 @@ description = "Library to call misassemblies in genome assemblies from long-read
 repository = "https://github.com/logsdon-lab/rs-nucflag"
 readme = "README.md"
 license = "MIT"
+# Exclude test files.
+exclude = ["test/*/"]
 
 [lib]
 name = "rs_nucflag"
